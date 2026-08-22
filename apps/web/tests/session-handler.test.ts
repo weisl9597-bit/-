@@ -23,7 +23,7 @@ describe('session POST handler', () => {
     const response = await handler(request);
 
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe('http://localhost/');
+    expect(response.headers.get('location')).toBe('/');
     expect(response.headers.get('set-cookie')).toContain(
       'designbao_session=raw-token; Path=/; Expires=Sat, 22 Aug 2026 08:00:00 GMT; HttpOnly; Secure; SameSite=Lax',
     );
@@ -50,7 +50,7 @@ describe('session POST handler', () => {
     const response = await handler(request);
 
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe('http://localhost/login?error=invalid_credentials');
+    expect(response.headers.get('location')).toBe('/login?error=invalid_credentials');
     expect(created).toBe(false);
   });
 });
@@ -78,6 +78,6 @@ describe('session DELETE handler', () => {
     expect(revoked).toBe('raw-token');
     expect(response.status).toBe(303);
     expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
-    expect(response.headers.get('location')).toBe('https://example.test/login');
+    expect(response.headers.get('location')).toBe('/login');
   });
 });

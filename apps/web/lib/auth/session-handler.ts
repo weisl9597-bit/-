@@ -7,10 +7,10 @@ export type SessionHandlerOptions = {
   secureCookies: boolean;
 };
 
-function redirectTo(request: Request, path: string): Response {
+function redirectTo(path: string): Response {
   return new Response(null, {
     status: 303,
-    headers: { location: new URL(path, request.url).toString() },
+    headers: { location: path },
   });
 }
 
@@ -26,10 +26,10 @@ export function createSessionHandler(
       ? await dependencies.authenticate(email, password)
       : null;
 
-    if (!authenticated) return redirectTo(request, '/login?error=invalid_credentials');
+    if (!authenticated) return redirectTo('/login?error=invalid_credentials');
 
     const session = await dependencies.createSession(authenticated.userId);
-    const response = redirectTo(request, '/');
+    const response = redirectTo('/');
     const cookieParts = [
       `designbao_session=${encodeURIComponent(session.rawToken)}`,
       'Path=/',
@@ -68,7 +68,7 @@ export function createDeleteSessionHandler(revoke: (rawToken: string) => Promise
   return async function deleteSession(request: Request): Promise<Response> {
     const token = requestCookie(request, 'designbao_session');
     if (token) await revoke(token);
-    const response = redirectTo(request, '/login');
+    const response = redirectTo('/login');
     response.headers.set(
       'set-cookie',
       'designbao_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
