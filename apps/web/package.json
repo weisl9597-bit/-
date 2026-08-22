@@ -4,7 +4,7 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "start": "next start",
+    "start": "node ../../node_modules/tsx/dist/cli.mjs ../../scripts/start-web.ts",
     "test": "vitest run"
   },
   "dependencies": {

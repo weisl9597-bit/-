@@ -97,6 +97,14 @@ button {
   color: #74809a;
 }
 
+.login-card .login-error {
+  padding: 12px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  color: #b42318;
+  background: #fef3f2;
+}
+
 .login-card label {
   display: grid;
   gap: 8px;
