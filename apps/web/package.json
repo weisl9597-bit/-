@@ -1,0 +1,30 @@
+{
+  "name": "@designbao/web",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "start": "next start",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@designbao/db": "workspace:*",
+    "@designbao/domain": "workspace:*",
+    "@designbao/importer": "workspace:*",
+    "@designbao/metrics": "workspace:*",
+    "@designbao/rules": "workspace:*",
+    "@designbao/storage": "workspace:*",
+    "@node-rs/argon2": "^2.0.0",
+    "@prisma/client": "^6.19.0",
+    "next": "^15.5.0",
+    "pg": "^8.16.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0"
+  }
+}

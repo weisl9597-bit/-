@@ -1,0 +1,14 @@
+{
+  "name": "@designbao/metrics",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./catalog": "./src/catalog.ts",
+    "./calculate": "./src/calculate.ts",
+    "./snapshots": "./src/snapshots.ts",
+    "./query": "./src/query.ts"
+  },
+  "dependencies": {
+    "@designbao/domain": "workspace:*"
+  }
+}

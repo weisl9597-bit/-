@@ -1,0 +1,17 @@
+.git
+.github
+.pnpm-store
+.tmp
+node_modules
+**/node_modules
+**/.next
+playwright-report
+test-results
+backups
+sources
+prototype
+review
+*.xlsx
+.env
+.env.*
+!infra/production/.env.production.example

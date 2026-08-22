@@ -1,0 +1,11 @@
+{
+  "name": "@designbao/rules",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./project-alerts": "./src/project-alerts.ts",
+    "./merchant-classification": "./src/merchant-classification.ts",
+    "./evaluate": "./src/evaluate.ts",
+    "./reasons": "./src/reasons.ts"
+  }
+}

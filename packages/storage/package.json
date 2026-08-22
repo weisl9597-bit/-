@@ -1,0 +1,11 @@
+{
+  "name": "@designbao/storage",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./s3": "./src/s3.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.883.0"
+  }
+}

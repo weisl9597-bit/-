@@ -1,0 +1,31 @@
+{
+  "name": "designbao-operations-workbench",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "scripts": {
+    "build": "node apps/web/node_modules/next/dist/bin/next build apps/web",
+    "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
+    "dev": "node apps/web/node_modules/next/dist/bin/next dev apps/web",
+    "lint": "eslint \"apps/**/*.{ts,tsx}\" \"packages/**/*.{ts,tsx}\" --no-error-on-unmatched-pattern --max-warnings=0",
+    "test": "vitest run apps/web/tests apps/worker/tests packages/domain/tests packages/db/tests packages/importer/tests packages/metrics/tests packages/rules/tests packages/storage/tests infra/backup/*.test.ts",
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "typecheck": "tsc --noEmit -p apps/web/tsconfig.json && tsc --noEmit -p apps/worker/tsconfig.json && tsc --noEmit -p packages/domain/tsconfig.json && tsc --noEmit -p packages/db/tsconfig.json && tsc --noEmit -p packages/importer/tsconfig.json && tsc --noEmit -p packages/metrics/tsconfig.json && tsc --noEmit -p packages/rules/tsconfig.json && tsc --noEmit -p packages/storage/tsconfig.json"
+  },
+  "devDependencies": {
+    "@next/eslint-plugin-next": "^15.5.0",
+    "@playwright/test": "1.55.0",
+    "@playwright/test": "1.55.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.0.0",
+    "tsx": "4.23.12",
+    "typescript": "^5.9.0",
+    "tsx": "4.23.12",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.2.0"
+  }
+}

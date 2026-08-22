@@ -1,0 +1,15 @@
+{
+  "name": "@designbao/importer",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./hash-file": "./src/hash-file.ts",
+    "./mappings": "./src/mappings.ts",
+    "./parse-workbook": "./src/parse-workbook.ts",
+    "./validate-batch": "./src/validate-batch.ts"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.2.5",
+    "jszip": "^3.10.1"
+  }
+}

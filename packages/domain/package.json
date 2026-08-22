@@ -1,0 +1,10 @@
+{
+  "name": "@designbao/domain",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./period": "./src/period.ts",
+    "./sop": "./src/sop.ts",
+    "./types": "./src/types.ts"
+  }
+}

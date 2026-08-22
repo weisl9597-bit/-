@@ -1,0 +1,51 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it } from 'vitest';
+import { MerchantDetail } from '../components/merchants/merchant-detail';
+import { ProjectDetail } from '../components/projects/project-detail';
+import { UploadResult } from '../components/admin/upload-result';
+import { MerchantDecisionPanel } from '../components/admin/merchant-decision-panel';
+
+describe('merchant, project and admin UI', () => {
+  it('shows classification reason, SOP facts and cross-links', () => {
+    const merchant = renderToStaticMarkup(createElement(MerchantDetail, {
+      merchant: {
+        id: 'M1', name: '示例装企', classification: 'B', reason: '连续两周下降',
+        sopRate: 48, projects: [{ id: 'P1::M1', sourceProjectId: 'P1' }],
+      },
+    }));
+    const project = renderToStaticMarkup(createElement(ProjectDetail, {
+      project: {
+        id: 'P1::M1', sourceProjectId: 'P1', merchantId: 'M1', merchantName: '示例装企',
+        followWithin30m: true, needsAnalyzed: true, hardInvite: false,
+        needsCoaching: true, coached: null, improved: false,
+      },
+    }));
+    expect(merchant).toContain('分类原因');
+    expect(merchant).toContain('/projects?merchantId=M1');
+    expect(project).toContain('30min内跟进');
+    expect(project).toContain('详细需求沟通/户型解析');
+    expect(project).toContain('硬约沟通/量房');
+    expect(project).toContain('/merchants?id=M1');
+  });
+
+  it('shows auditable upload counts and blocking status', () => {
+    const html = renderToStaticMarkup(createElement(UploadResult, {
+      result: { status: 'FAILED', totalRows: 2065, acceptedRows: 0, warningCount: 509, errorCount: 101 },
+    }));
+    expect(html).toContain('导入未通过');
+    expect(html).toContain('101');
+    expect(html).toContain('509');
+  });
+
+  it('requires a reason and exposes candidate confirmation and exemption actions', () => {
+    const html = renderToStaticMarkup(createElement(MerchantDecisionPanel, {
+      merchantId: 'M1', merchantName: '示例装企', suggested: 'C', reason: '连续两周未改善',
+      onSaved: () => undefined,
+    }));
+    expect(html).toContain('确认进入C类');
+    expect(html).toContain('临时豁免');
+    expect(html).toContain('操作原因');
+    expect(html).toContain('required');
+  });
+});

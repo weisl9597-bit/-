@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: designbao
+      POSTGRES_USER: designbao
+      POSTGRES_PASSWORD: designbao_local
+      TZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - designbao_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U designbao -d designbao"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: designbao
+      MINIO_ROOT_PASSWORD: designbao_local_only
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - designbao_minio:/data
+
+volumes:
+  designbao_postgres:
+  designbao_minio:

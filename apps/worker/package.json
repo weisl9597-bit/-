@@ -1,0 +1,19 @@
+{
+  "name": "@designbao/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-strip-types src/worker.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@designbao/db": "workspace:*",
+    "@designbao/domain": "workspace:*",
+    "@designbao/importer": "workspace:*",
+    "@designbao/metrics": "workspace:*",
+    "@designbao/rules": "workspace:*",
+    "@designbao/storage": "workspace:*",
+    "@prisma/client": "^6.19.0",
+    "tsx": "^4.20.0"
+  }
+}

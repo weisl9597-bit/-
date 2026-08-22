@@ -1,0 +1,20 @@
+{
+  "name": "@designbao/db",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "prisma generate --schema prisma/schema.prisma",
+    "validate": "prisma validate --schema prisma/schema.prisma"
+  },
+  "exports": {
+    "./client": "./src/client.ts",
+    "./jobs": "./src/jobs.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.0",
+    "prisma": "^6.19.0"
+  }
+}
