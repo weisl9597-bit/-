@@ -24,8 +24,8 @@ describe('job claiming', () => {
       INSERT INTO "Job"
         ("id", "type", "status", "payload", "availableAt", "updatedAt")
       VALUES
-        ('job-1', 'IMPORT', 'QUEUED', '{"batchId":"batch-1"}'::jsonb, NOW() - INTERVAL '1 minute', NOW()),
-        ('job-future', 'IMPORT', 'QUEUED', '{"batchId":"batch-2"}'::jsonb, NOW() + INTERVAL '1 day', NOW());
+        ('job-1', 'IMPORT', 'QUEUED', '{"batchId":"batch-1"}'::jsonb, TIMESTAMPTZ '2026-08-21 11:59:00+00', NOW()),
+        ('job-future', 'IMPORT', 'QUEUED', '{"batchId":"batch-2"}'::jsonb, TIMESTAMPTZ '2026-08-22 12:00:00+00', NOW());
     `);
     const adapter: JobDatabase = {
       transaction(operation) {

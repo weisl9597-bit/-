@@ -57,7 +57,7 @@ export function createConfiguredObjectStore(): ObjectStore {
   const client = new S3Client({
     endpoint: requiredEnvironment('OBJECT_STORAGE_ENDPOINT'),
     region: requiredEnvironment('OBJECT_STORAGE_REGION'),
-    forcePathStyle: true,
+    forcePathStyle: process.env.OBJECT_STORAGE_FORCE_PATH_STYLE !== 'false',
     credentials: {
       accessKeyId: requiredEnvironment('OBJECT_STORAGE_ACCESS_KEY'),
       secretAccessKey: requiredEnvironment('OBJECT_STORAGE_SECRET_KEY'),
