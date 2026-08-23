@@ -1,6 +1,11 @@
-import { createHash } from 'node:crypto';
 import { db } from '@designbao/db/client';
 import { Prisma } from '@prisma/client';
+import { buildBulkImportPlan } from './bulk-import-plan';
+import {
+  upsertMerchants,
+  upsertOrganizations,
+  upsertProjects,
+} from './prisma-bulk-upsert';
 import type {
   ImportBatchRecord,
   ImportBatchRepository,
@@ -16,19 +21,7 @@ function formatDate(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
-function organizationId(level: 'national' | 'region' | 'city', path: string): string {
-  return `org_${level}_${createHash('sha256').update(path).digest('hex').slice(0, 20)}`;
-}
-
-export function buildOrganizationPaths(region: string, city: string) {
-  const nationalPath = '/china';
-  const regionPath = `${nationalPath}/${encodeURIComponent(region)}`;
-  return {
-    nationalPath,
-    regionPath,
-    cityPath: `${regionPath}/${encodeURIComponent(city)}`,
-  };
-}
+export { buildOrganizationPaths } from './bulk-import-plan';
 
 function json(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -73,9 +66,10 @@ function issueRows(
   }));
 }
 
-export const prismaImportRepository: ImportBatchRepository = {
+export function createPrismaImportRepository(database: typeof db): ImportBatchRepository {
+  return {
   async getBatch(batchId): Promise<ImportBatchRecord | null> {
-    const batch = await db.uploadBatch.findUnique({ where: { id: batchId } });
+    const batch = await database.uploadBatch.findUnique({ where: { id: batchId } });
     if (!batch?.objectKey) return null;
     return {
       id: batch.id,
@@ -90,14 +84,14 @@ export const prismaImportRepository: ImportBatchRepository = {
   },
 
   async markProcessing(batchId) {
-    await db.uploadBatch.update({
+    await database.uploadBatch.update({
       where: { id: batchId },
       data: { status: 'PROCESSING', startedAt: new Date(), failureMessage: null },
     });
   },
 
   async persistFailed(input) {
-    await db.$transaction(async (transaction) => {
+    await database.$transaction(async (transaction) => {
       await transaction.uploadRow.deleteMany({ where: { batchId: input.batchId } });
       await transaction.uploadError.deleteMany({ where: { batchId: input.batchId } });
       await transaction.uploadRow.createMany({ data: rawRows(input) });
@@ -121,7 +115,7 @@ export const prismaImportRepository: ImportBatchRepository = {
   },
 
   async persistSuccessful(input) {
-    await db.$transaction(async (transaction) => {
+    await database.$transaction(async (transaction) => {
       await transaction.uploadRow.deleteMany({ where: { batchId: input.batchId } });
       await transaction.uploadError.deleteMany({ where: { batchId: input.batchId } });
       await transaction.uploadRow.createMany({ data: rawRows(input) });
@@ -131,86 +125,18 @@ export const prismaImportRepository: ImportBatchRepository = {
         });
       }
 
-      const cityIds = new Map<string, string>();
-      const nationalPath = '/china';
-      const nationalId = organizationId('national', nationalPath);
-      await transaction.organization.upsert({
-        where: { path: nationalPath },
-        create: { id: nationalId, code: 'CN', name: '全国', level: 'NATIONAL', path: nationalPath },
-        update: { code: 'CN', name: '全国', level: 'NATIONAL' },
-      });
-      for (const record of input.records) {
-        const { regionPath, cityPath } = buildOrganizationPaths(record.region, record.city);
-        const regionId = organizationId('region', regionPath);
-        await transaction.organization.upsert({
-          where: { path: regionPath },
-          create: {
-            id: regionId,
-            name: record.region,
-            level: 'REGION',
-            path: regionPath,
-            parentId: nationalId,
-          },
-          update: { name: record.region, parentId: nationalId },
-        });
-        const cityId = organizationId('city', cityPath);
-        await transaction.organization.upsert({
-          where: { path: cityPath },
-          create: {
-            id: cityId,
-            name: record.city,
-            level: 'CITY',
-            path: cityPath,
-            parentId: regionId,
-          },
-          update: { name: record.city, parentId: regionId },
-        });
-        cityIds.set(record.city, cityId);
-      }
-
-      for (const record of input.records) {
-        const cityId = cityIds.get(record.city)!;
-        await transaction.merchant.upsert({
-          where: { id: record.merchantId },
-          create: {
-            id: record.merchantId,
-            name: record.merchantName ?? record.merchantId,
-            organizationId: cityId,
-          },
-          update: {
-            name: record.merchantName ?? record.merchantId,
-            organizationId: cityId,
-          },
-        });
-        await transaction.project.upsert({
-          where: { id: record.assignmentId },
-          create: {
-            id: record.assignmentId,
-            sourceProjectId: record.projectId,
-            merchantId: record.merchantId,
-            organizationId: cityId,
-            assignedAt: dateOnly(record.assignedAt),
-            followWithin30m: record.followWithin30m,
-            needsAnalyzed: record.needsAnalyzed,
-            hardInvite: record.hardInvite,
-            needsCoaching: record.needsCoaching,
-            coached: record.coached,
-            improved: record.improved,
-          },
-          update: {
-            sourceProjectId: record.projectId,
-            merchantId: record.merchantId,
-            organizationId: cityId,
-            assignedAt: dateOnly(record.assignedAt),
-            followWithin30m: record.followWithin30m,
-            needsAnalyzed: record.needsAnalyzed,
-            hardInvite: record.hardInvite,
-            needsCoaching: record.needsCoaching,
-            coached: record.coached,
-            improved: record.improved,
-          },
-        });
-      }
+      const plan = buildBulkImportPlan(input.records);
+      const writer = {
+        async executeRaw(query: Prisma.Sql): Promise<void> {
+          await transaction.$executeRaw(query);
+        },
+      };
+      await upsertOrganizations(writer, plan.organizations);
+      await upsertMerchants(writer, plan.merchants);
+      await upsertProjects(writer, plan.projects);
+      const organizationByProject = new Map(
+        plan.projects.map((project) => [project.id, project.organizationId]),
+      );
 
       await transaction.projectSnapshot.createMany({
         data: input.records.map((record) => ({
@@ -218,7 +144,7 @@ export const prismaImportRepository: ImportBatchRepository = {
           projectId: record.assignmentId,
           sourceProjectId: record.projectId,
           merchantId: record.merchantId,
-          organizationId: cityIds.get(record.city)!,
+          organizationId: organizationByProject.get(record.assignmentId)!,
           uploadBatchId: input.batchId,
           followWithin30m: record.followWithin30m,
           needsAnalyzed: record.needsAnalyzed,
@@ -258,4 +184,8 @@ export const prismaImportRepository: ImportBatchRepository = {
       });
     }, { timeout: 120_000 });
   },
-};
+  };
+}
+
+export const prismaImportRepository = createPrismaImportRepository(db);
+
