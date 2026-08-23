@@ -42,14 +42,54 @@ export async function claimNextJobWithDatabase(
   now = new Date(),
 ): Promise<ClaimedJob | null> {
   return database.transaction(async (transaction) => {
+    const staleBefore = new Date(now.getTime() - 15 * 60_000);
+    await transaction.execute(
+      `
+        UPDATE "Job"
+        SET "status" = 'FAILED',
+            "lockedBy" = NULL,
+            "lockedAt" = NULL,
+            "lastError" = COALESCE("lastError", 'Worker stopped before the job completed'),
+            "updatedAt" = $1
+        WHERE "status" = 'RUNNING'
+          AND "lockedAt" <= $2
+          AND "attempts" >= "maxAttempts"
+      `,
+      [now, staleBefore],
+    );
+    await transaction.execute(
+      `
+        UPDATE "Job"
+        SET "status" = 'QUEUED',
+            "availableAt" = $1,
+            "lockedBy" = NULL,
+            "lockedAt" = NULL,
+            "lastError" = 'Worker stopped before the job completed',
+            "updatedAt" = $1
+        WHERE "status" = 'RUNNING'
+          AND "lockedAt" <= $2
+          AND "attempts" < "maxAttempts"
+      `,
+      [now, staleBefore],
+    );
     const candidates = await transaction.query<{ id: string }>(
       `
-        SELECT "id"
-        FROM "Job"
-        WHERE "status" = 'QUEUED'
-          AND "availableAt" <= $1
-          AND "attempts" < "maxAttempts"
-        ORDER BY "availableAt" ASC, "createdAt" ASC
+        SELECT candidate."id"
+        FROM "Job" AS candidate
+        WHERE candidate."status" = 'QUEUED'
+          AND candidate."availableAt" <= $1
+          AND candidate."attempts" < candidate."maxAttempts"
+          AND (
+            candidate."type" <> 'RULES'
+            OR EXISTS (
+              SELECT 1
+              FROM "Job" AS metrics
+              WHERE metrics."type" = 'METRICS'
+                AND metrics."sourceBatchId" = candidate."sourceBatchId"
+                AND metrics."status" = 'SUCCEEDED'
+            )
+          )
+        ORDER BY candidate."availableAt" ASC, candidate."createdAt" ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 1
       `,
@@ -98,16 +138,65 @@ export function safeErrorMessage(error: unknown): string {
   return (message || 'Unknown worker error').slice(0, 500);
 }
 
-export async function completeJob(jobId: string): Promise<void> {
-  await db.job.updateMany({
-    where: { id: jobId, status: 'RUNNING' },
-    data: {
-      status: 'SUCCEEDED',
-      lockedBy: null,
-      lockedAt: null,
-      lastError: null,
-    },
+export async function completeJobWithDatabase(
+  jobId: string,
+  database: JobDatabase,
+  now = new Date(),
+): Promise<void> {
+  await database.transaction(async (transaction) => {
+    const jobs = await transaction.query<{
+      type: ClaimedJob['type'];
+      sourceBatchId: string | null;
+    }>(
+      `
+        SELECT "type", "sourceBatchId"
+        FROM "Job"
+        WHERE "id" = $1
+          AND "status" = 'RUNNING'
+        FOR UPDATE
+      `,
+      [jobId],
+    );
+    const job = jobs[0];
+    if (!job) return;
+
+    await transaction.execute(
+      `
+        UPDATE "Job"
+        SET "status" = 'SUCCEEDED',
+            "lockedBy" = NULL,
+            "lockedAt" = NULL,
+            "lastError" = NULL,
+            "updatedAt" = $1
+        WHERE "id" = $2
+          AND "status" = 'RUNNING'
+      `,
+      [now, jobId],
+    );
+
+    if (job.type === 'METRICS' && job.sourceBatchId) {
+      await transaction.execute(
+        `
+          UPDATE "Job"
+          SET "status" = 'QUEUED',
+              "attempts" = 0,
+              "availableAt" = $1,
+              "lockedBy" = NULL,
+              "lockedAt" = NULL,
+              "lastError" = NULL,
+              "updatedAt" = $1
+          WHERE "type" = 'RULES'
+            AND "sourceBatchId" = $2
+            AND "status" IN ('SUCCEEDED', 'FAILED')
+        `,
+        [now, job.sourceBatchId],
+      );
+    }
   });
+}
+
+export function completeJob(jobId: string): Promise<void> {
+  return completeJobWithDatabase(jobId, prismaJobDatabase, new Date());
 }
 
 export async function failJobWithDatabase(

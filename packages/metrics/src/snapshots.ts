@@ -23,6 +23,8 @@ export type MetricSnapshotRepository = {
   insertSnapshots(snapshots: MetricSnapshotInput[]): Promise<number>;
 };
 
+const snapshotBatchSize = 500;
+
 function addScope(
   groups: Map<string, MetricRow[]>,
   key: string,
@@ -50,7 +52,13 @@ export async function buildMetricSnapshots(
     if (cityId) addScope(groups, `${row.dataDate}|merchant:${cityId}:${row.merchantId}`, row);
   }
 
-  const snapshots: MetricSnapshotInput[] = [];
+  let snapshots: MetricSnapshotInput[] = [];
+  let snapshotCount = 0;
+  const flushSnapshots = async (): Promise<void> => {
+    if (snapshots.length === 0) return;
+    snapshotCount += await repository.insertSnapshots(snapshots);
+    snapshots = [];
+  };
   for (const [key, scopedRows] of groups) {
     const [period = dataDate, scopeKey = ''] = key.split('|');
     const [scope, organizationId = '', merchantId] = scopeKey.split(':');
@@ -69,8 +77,11 @@ export async function buildMetricSnapshots(
         sourceBatchId: batchId,
         formulaVersion: definition.formulaVersion,
       });
+      if (snapshots.length >= snapshotBatchSize) await flushSnapshots();
     }
   }
 
-  return repository.insertSnapshots(snapshots);
+  await flushSnapshots();
+  return snapshotCount;
 }
+

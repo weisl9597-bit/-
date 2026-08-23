@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   claimNextJobWithDatabase,
+  completeJobWithDatabase,
   failJobWithDatabase,
   type JobDatabase,
   type JobTransaction,
@@ -88,6 +89,131 @@ describe('job claiming', () => {
       lockedBy: 'worker-1',
       attempts: 1,
     });
+    await database.close();
+  });
+
+  it('reclaims a retryable job left running by a terminated worker', async () => {
+    const database = new PGlite();
+    await database.exec(migrationSql);
+    await database.exec(`
+      INSERT INTO "UploadBatch"
+        ("id", "fileName", "fileHash", "dataDate", "status", "updatedAt")
+      VALUES
+        ('batch-stale', 'designbao.xlsx', 'hash-stale', DATE '2026-08-23', 'SUCCEEDED', NOW());
+      INSERT INTO "Job"
+        ("id", "type", "status", "sourceBatchId", "payload", "attempts", "maxAttempts", "lockedBy", "lockedAt", "availableAt", "updatedAt")
+      VALUES
+        ('job-stale', 'METRICS', 'RUNNING', 'batch-stale', '{"batchId":"batch-stale","dataDate":"2026-08-23"}'::jsonb, 1, 3, 'dead-worker', TIMESTAMPTZ '2026-08-23 11:30:00+00', TIMESTAMPTZ '2026-08-23 11:30:00+00', NOW());
+    `);
+    const adapter: JobDatabase = {
+      transaction(operation) {
+        return database.transaction(async (tx) => operation({
+          async query<T>(sql: string, parameters: unknown[]): Promise<T[]> {
+            const result = await tx.query<T>(sql, parameters);
+            return result.rows;
+          },
+          async execute(sql: string, parameters: unknown[]): Promise<void> {
+            await tx.query(sql, parameters);
+          },
+        }));
+      },
+    };
+
+    const claimed = await claimNextJobWithDatabase(
+      'replacement-worker',
+      adapter,
+      new Date('2026-08-23T12:00:00.000Z'),
+    );
+
+    expect(claimed).toMatchObject({
+      id: 'job-stale',
+      type: 'METRICS',
+      attempts: 2,
+      lockedBy: 'replacement-worker',
+    });
+    await database.close();
+  });
+
+  it('does not claim rules before metrics for the same batch succeed', async () => {
+    const database = new PGlite();
+    await database.exec(migrationSql);
+    await database.exec(`
+      INSERT INTO "UploadBatch"
+        ("id", "fileName", "fileHash", "dataDate", "status", "updatedAt")
+      VALUES
+        ('batch-order', 'designbao.xlsx', 'hash-order', DATE '2026-08-23', 'SUCCEEDED', NOW());
+      INSERT INTO "Job"
+        ("id", "type", "status", "sourceBatchId", "payload", "availableAt", "createdAt", "updatedAt")
+      VALUES
+        ('metrics-order', 'METRICS', 'QUEUED', 'batch-order', '{"batchId":"batch-order","dataDate":"2026-08-23"}'::jsonb, TIMESTAMPTZ '2026-08-23 11:59:00+00', TIMESTAMPTZ '2026-08-23 11:59:00+00', NOW()),
+        ('rules-order', 'RULES', 'QUEUED', 'batch-order', '{"batchId":"batch-order","dataDate":"2026-08-23"}'::jsonb, TIMESTAMPTZ '2026-08-23 11:59:00+00', TIMESTAMPTZ '2026-08-23 11:59:01+00', NOW());
+    `);
+    const adapter: JobDatabase = {
+      transaction(operation) {
+        return database.transaction(async (tx) => operation({
+          async query<T>(sql: string, parameters: unknown[]): Promise<T[]> {
+            const result = await tx.query<T>(sql, parameters);
+            return result.rows;
+          },
+          async execute(sql: string, parameters: unknown[]): Promise<void> {
+            await tx.query(sql, parameters);
+          },
+        }));
+      },
+    };
+    const now = new Date('2026-08-23T12:00:00.000Z');
+
+    const metrics = await claimNextJobWithDatabase('worker-1', adapter, now);
+    const blockedRules = await claimNextJobWithDatabase('worker-2', adapter, now);
+
+    expect(metrics?.type).toBe('METRICS');
+    expect(blockedRules).toBeNull();
+    await database.close();
+  });
+});
+
+describe('job completion handling', () => {
+  it('requeues rules that ran before a recovered metrics job completed', async () => {
+    const database = new PGlite();
+    await database.exec(migrationSql);
+    await database.exec(`
+      INSERT INTO "UploadBatch"
+        ("id", "fileName", "fileHash", "dataDate", "status", "updatedAt")
+      VALUES
+        ('batch-repair', 'designbao.xlsx', 'hash-repair', DATE '2026-08-23', 'SUCCEEDED', NOW());
+      INSERT INTO "Job"
+        ("id", "type", "status", "sourceBatchId", "payload", "attempts", "maxAttempts", "updatedAt")
+      VALUES
+        ('metrics-repair', 'METRICS', 'RUNNING', 'batch-repair', '{"batchId":"batch-repair","dataDate":"2026-08-23"}'::jsonb, 2, 3, NOW()),
+        ('rules-repair', 'RULES', 'SUCCEEDED', 'batch-repair', '{"batchId":"batch-repair","dataDate":"2026-08-23"}'::jsonb, 1, 3, NOW());
+    `);
+    const adapter: JobDatabase = {
+      transaction(operation) {
+        return database.transaction(async (tx) => operation({
+          async query<T>(sql: string, parameters: unknown[]): Promise<T[]> {
+            const result = await tx.query<T>(sql, parameters);
+            return result.rows;
+          },
+          async execute(sql: string, parameters: unknown[]): Promise<void> {
+            await tx.query(sql, parameters);
+          },
+        }));
+      },
+    };
+
+    await completeJobWithDatabase(
+      'metrics-repair',
+      adapter,
+      new Date('2026-08-23T12:00:00.000Z'),
+    );
+
+    const jobs = await database.query<{ id: string; status: string; attempts: number }>(
+      'SELECT "id", "status", "attempts" FROM "Job" ORDER BY "id"',
+    );
+    expect(jobs.rows).toEqual([
+      { id: 'metrics-repair', status: 'SUCCEEDED', attempts: 2 },
+      { id: 'rules-repair', status: 'QUEUED', attempts: 0 },
+    ]);
     await database.close();
   });
 });
