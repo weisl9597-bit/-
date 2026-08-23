@@ -44,7 +44,8 @@ describe('organization-scoped query contracts', () => {
       async listDaily() {
         return [{
           metricId: 'project_open_rate', periodStart: new Date('2026-08-21T00:00:00Z'),
-          organizationId: 'city-1', merchantId: null, value: 50, numerator: 1, denominator: 2,
+          organizationId: 'city-1', merchantId: null, businessSource: 'DESIGNBAO' as const,
+          value: 50, numerator: 1, denominator: 2,
         }];
       },
     };
@@ -63,6 +64,28 @@ describe('organization-scoped query contracts', () => {
       metricIds: ['project_open_rate'], grain: 'DAY', start: new Date(), end: new Date(),
       organizationId: 'city-2', source: 'DESIGNBAO',
     }, cityScope, repository)).rejects.toThrow('ORGANIZATION_OUT_OF_SCOPE');
+  });
+
+  it('combines ALL-source rates from facts rather than averaging displayed percentages', async () => {
+    const repository = {
+      async listDaily() {
+        const periodStart = new Date('2026-08-21T00:00:00Z');
+        return [
+          { metricId: 'project_open_rate', periodStart, organizationId: 'city-1', merchantId: null,
+            businessSource: 'DESIGNBAO' as const, value: 50, numerator: 1, denominator: 2 },
+          { metricId: 'project_open_rate', periodStart, organizationId: 'city-1', merchantId: null,
+            businessSource: 'XIAOHONGSHU' as const, value: 100, numerator: 8, denominator: 8 },
+        ];
+      },
+    };
+
+    await expect(getMetricCenterData({
+      metricIds: ['project_open_rate'], grain: 'DAY',
+      start: new Date('2026-08-21T00:00:00Z'), end: new Date('2026-08-21T23:59:59Z'),
+      source: 'ALL', organizationId: 'city-1',
+    }, cityScope, repository)).resolves.toMatchObject({
+      series: [{ points: [{ value: 90, numerator: 9, denominator: 10 }] }],
+    });
   });
 
   it('uses cursor pagination and caps the page size at 200', async () => {
@@ -100,3 +123,4 @@ describe('organization-scoped query contracts', () => {
       .toMatchObject({ abnormal: true, coached: null });
   });
 });
+

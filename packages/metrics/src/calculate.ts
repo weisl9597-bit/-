@@ -1,3 +1,4 @@
+import type { ActualBusinessSource } from '@designbao/domain/business-source';
 import type { MetricDefinition } from './catalog';
 
 export type MetricRow = {
@@ -11,7 +12,7 @@ export type MetricRow = {
   assignmentDate?: string | null;
   signedDate?: string | null;
   assignmentCount?: number;
-  businessSource?: 'DESIGNBAO' | 'XIAOHONGSHU' | 'OTHER';
+  businessSource: ActualBusinessSource;
   followWithin30m: boolean | null;
   needsAnalyzed: boolean | null;
   hardInvite: boolean | null;
@@ -181,3 +182,4 @@ export function calculateMetric(
     default: throw new Error(`未实现指标公式：${definition.id}`);
   }
 }
+

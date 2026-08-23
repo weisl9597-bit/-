@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MetricRow } from '../src/calculate';
 import { allMetricDefinitions } from '../src/catalog';
+import { queryMetricSeries } from '../src/query';
 import { buildMetricSnapshots, type MetricSnapshotRepository } from '../src/snapshots';
 
 describe('metric snapshots', () => {
@@ -35,16 +36,49 @@ describe('metric snapshots', () => {
       metricId: 'merchant_sop_compliance_rate', grain: 'DAY', periodStart: '2026-08-21',
       organizationId: 'city-1', merchantId: 'M1', numerator: 1, denominator: 1, value: 100,
       sourceBatchId: 'batch-1', formulaVersion: 'v2',
-      dimensionKey: 'source:DESIGNBAO|merchant:M1',
+      businessSource: 'DESIGNBAO', dimensionKey: 'merchant:M1',
     }));
     expect(saved).toContainEqual(expect.objectContaining({
       metricId: 'dispatch_project_count', organizationId: 'national', merchantId: null,
-      value: 1, dimensionKey: 'source:DESIGNBAO|organization',
+      businessSource: 'DESIGNBAO', value: 1, dimensionKey: 'organization',
     }));
     expect(saved).toContainEqual(expect.objectContaining({
       metricId: 'dispatch_project_count', organizationId: 'national',
-      value: 1, dimensionKey: 'source:XIAOHONGSHU|organization',
+      businessSource: 'XIAOHONGSHU', value: 1, dimensionKey: 'organization',
     }));
+  });
+
+  it('combines source rates from summed numerators and denominators', async () => {
+    const series = await queryMetricSeries({
+      metricIds: ['project_open_rate'],
+      grain: 'DAY',
+      start: new Date('2026-08-21T00:00:00Z'),
+      end: new Date('2026-08-21T23:59:59Z'),
+      organizationIds: ['city-1'],
+      source: 'ALL',
+    }, {
+      async listDaily() {
+        return [{
+          metricId: 'project_open_rate',
+          periodStart: new Date('2026-08-21T00:00:00Z'),
+          organizationId: 'city-1', merchantId: null,
+          businessSource: 'DESIGNBAO' as const,
+          value: 50, numerator: 1, denominator: 2,
+        }, {
+          metricId: 'project_open_rate',
+          periodStart: new Date('2026-08-21T00:00:00Z'),
+          organizationId: 'city-1', merchantId: null,
+          businessSource: 'XIAOHONGSHU' as const,
+          value: 100, numerator: 8, denominator: 8,
+        }];
+      },
+    });
+
+    expect(series[0]?.points[0]).toMatchObject({
+      value: 90,
+      numerator: 9,
+      denominator: 10,
+    });
   });
 
   it('writes large metric results in bounded batches', async () => {
@@ -83,3 +117,4 @@ describe('metric snapshots', () => {
     expect(Math.max(...batchSizes)).toBeLessThanOrEqual(500);
   });
 });
+

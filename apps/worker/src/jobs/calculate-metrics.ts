@@ -1,4 +1,5 @@
 import { db } from '@designbao/db/client';
+import { normalizeBusinessSource } from '@designbao/domain/business-source';
 import type { MetricRow } from '@designbao/metrics/calculate';
 import type { MetricDefinition } from '@designbao/metrics/catalog';
 import {
@@ -30,13 +31,6 @@ function workbookDate(value: unknown): string | null {
   }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
-}
-
-function businessSource(value: unknown): MetricRow['businessSource'] {
-  const normalized = String(value ?? '').trim().toLowerCase();
-  if (normalized === '设计宝') return 'DESIGNBAO';
-  if (normalized === '小红书') return 'XIAOHONGSHU';
-  return 'OTHER';
 }
 
 function assignmentCount(value: unknown): number {
@@ -107,7 +101,7 @@ export const prismaMetricSnapshotRepository: MetricSnapshotRepository = {
         assignmentDate: workbookDate(raw.I) ?? projectDate,
         signedDate: workbookDate(raw.AL),
         assignmentCount: assignmentCount(raw.J),
-        businessSource: businessSource(raw.F),
+        businessSource: normalizeBusinessSource(canonical.businessSource ?? raw.F),
         followWithin30m: typeof canonical.followWithin30m === 'boolean'
           ? canonical.followWithin30m : yes(raw.N),
         needsAnalyzed: typeof canonical.needsAnalyzed === 'boolean'
@@ -169,3 +163,4 @@ export async function runCalculateMetricsJob(input: {
   );
   return { snapshotCount };
 }
+

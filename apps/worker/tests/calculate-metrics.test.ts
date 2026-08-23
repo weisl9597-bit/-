@@ -8,6 +8,7 @@ describe('metric worker job', () => {
       loadRows: async () => [{
         assignmentId: 'P1::M1', sourceProjectId: 'P1', organizationIds: ['city-1'],
         merchantId: 'M1', dataDate: '2026-08-21', followWithin30m: true,
+        businessSource: 'DESIGNBAO',
         needsAnalyzed: true, hardInvite: false, coached: null, raw: { T: '是', U: '是' },
       }],
       syncDefinitions: async () => undefined,
@@ -20,3 +21,4 @@ describe('metric worker job', () => {
     })).resolves.toEqual({ snapshotCount: 82 });
   });
 });
+

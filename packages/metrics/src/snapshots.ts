@@ -1,8 +1,10 @@
+import type { ActualBusinessSource } from '@designbao/domain/business-source';
 import { allMetricDefinitions, type MetricDefinition } from './catalog';
 import { calculateMetric, type MetricRow } from './calculate';
 
 export type MetricSnapshotInput = {
   metricId: string;
+  businessSource: ActualBusinessSource;
   grain: 'DAY';
   periodStart: string;
   periodEnd: string;
@@ -47,7 +49,7 @@ export async function buildMetricSnapshots(
   const groups = new Map<string, MetricRow[]>();
 
   for (const row of rows) {
-    const source = row.businessSource ?? 'OTHER';
+    const source = row.businessSource;
     for (const organizationId of row.organizationIds) {
       addScope(groups, `${source}|organization:${organizationId}`, row);
     }
@@ -63,7 +65,7 @@ export async function buildMetricSnapshots(
     snapshots = [];
   };
   for (const [key, scopedRows] of groups) {
-    const [businessSource = 'OTHER', scopeKey = ''] = key.split('|');
+    const [businessSource = 'OTHER', scopeKey = ''] = key.split('|') as [ActualBusinessSource, string];
     const [scope, organizationId = '', merchantId] = scopeKey.split(':');
     const periods = new Set<string>();
     for (const row of scopedRows) {
@@ -80,14 +82,13 @@ export async function buildMetricSnapshots(
         const result = calculateMetric(definition, scopedRows, period);
         snapshots.push({
           metricId: definition.id,
+          businessSource,
           grain: 'DAY',
           periodStart: period,
           periodEnd: period,
           organizationId,
           merchantId: scope === 'merchant' ? merchantId ?? null : null,
-          dimensionKey: scope === 'merchant'
-            ? `source:${businessSource}|merchant:${merchantId}`
-            : `source:${businessSource}|organization`,
+          dimensionKey: scope === 'merchant' ? `merchant:${merchantId}` : 'organization',
           ...result,
           source: 'CALCULATED',
           sourceBatchId: batchId,
@@ -101,3 +102,4 @@ export async function buildMetricSnapshots(
   await flushSnapshots();
   return snapshotCount;
 }
+

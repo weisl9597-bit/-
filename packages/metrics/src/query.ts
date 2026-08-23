@@ -1,3 +1,4 @@
+import type { ActualBusinessSource, SelectableBusinessSource } from '@designbao/domain/business-source';
 import { getPeriodBounds } from '@designbao/domain/period';
 import { allMetricDefinitions } from './catalog';
 import { rate } from './calculate';
@@ -9,11 +10,12 @@ export type MetricQuery = {
   end: Date;
   organizationIds: string[];
   merchantId?: string;
-  source: 'DESIGNBAO' | 'XIAOHONGSHU' | 'ALL';
+  source: SelectableBusinessSource;
 };
 
 export type StoredDailyMetric = {
   metricId: string;
+  businessSource: ActualBusinessSource;
   periodStart: Date;
   organizationId: string;
   merchantId: string | null;
@@ -76,3 +78,4 @@ export async function queryMetricSeries(
     return { metricId, points };
   });
 }
+

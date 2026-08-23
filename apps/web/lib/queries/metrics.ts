@@ -54,9 +54,9 @@ export const prismaMetricQueryRepository: MetricQueryRepository = {
         periodStart: { gte: query.start, lte: query.end },
         organizationId: organizationIds.length > 0 ? { in: organizationIds } : undefined,
         merchantId: query.merchantId,
-        dimensionKey: query.source === 'ALL'
-          ? undefined
-          : { startsWith: `source:${query.source}|` },
+        businessSource: query.source === 'ALL'
+          ? { in: ['DESIGNBAO', 'XIAOHONGSHU'] }
+          : query.source,
         sourceBatch: { status: 'SUCCEEDED' },
       },
       include: { sourceBatch: { select: { createdAt: true } } },
@@ -64,10 +64,19 @@ export const prismaMetricQueryRepository: MetricQueryRepository = {
     });
     const latest = new Map<string, StoredDailyMetric>();
     for (const row of rows) {
-      const key = [row.metricId, row.periodStart.toISOString(), row.organizationId, row.dimensionKey].join(':');
+      if (row.businessSource === 'ALL') continue;
+      const key = [
+        row.metricId,
+        row.periodStart.toISOString(),
+        row.organizationId,
+        row.merchantId ?? '',
+        row.businessSource,
+        row.dimensionKey,
+      ].join(':');
       if (latest.has(key)) continue;
       latest.set(key, {
         metricId: row.metricId,
+        businessSource: row.businessSource,
         periodStart: row.periodStart,
         organizationId: row.organizationId,
         merchantId: row.merchantId,
@@ -106,3 +115,4 @@ export async function getMetricCenterData(
     series,
   };
 }
+

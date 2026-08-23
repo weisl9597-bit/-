@@ -11,19 +11,19 @@ function definition(id: string) {
 const rows: MetricRow[] = [
   {
     assignmentId: 'P1::M1', sourceProjectId: 'P1', organizationIds: ['city-1'],
-    merchantId: 'M1', dataDate: '2026-08-21', followWithin30m: true,
+    merchantId: 'M1', dataDate: '2026-08-21', businessSource: 'DESIGNBAO', followWithin30m: true,
     needsAnalyzed: true, hardInvite: false, coached: true,
     raw: { T: '是', U: '是', S: '有详细需求有户型图', X: '还不错', AH: '是', AI: '是', AJ: 1 },
   },
   {
     assignmentId: 'P1::M2', sourceProjectId: 'P1', organizationIds: ['city-1'],
-    merchantId: 'M2', dataDate: '2026-08-21', followWithin30m: true,
+    merchantId: 'M2', dataDate: '2026-08-21', businessSource: 'DESIGNBAO', followWithin30m: true,
     needsAnalyzed: false, hardInvite: true, coached: null,
     raw: { T: '否', U: '是', S: null, X: '差', AH: '是', AI: '是', AJ: 1 },
   },
   {
     assignmentId: 'P2::M1', sourceProjectId: 'P2', organizationIds: ['city-1'],
-    merchantId: 'M1', dataDate: '2026-08-21', followWithin30m: false,
+    merchantId: 'M1', dataDate: '2026-08-21', businessSource: 'DESIGNBAO', followWithin30m: false,
     needsAnalyzed: true, hardInvite: false, coached: null,
     raw: { T: '是', U: '是', S: '无详细需求无户型图', X: '一般', AH: '否', AI: '否', AJ: 0 },
   },
@@ -69,3 +69,4 @@ describe('metric calculation', () => {
     expect(calculateMetric(definition('quality_good_count'), workbookRows, '2026-08-02').value).toBe(1);
   });
 });
+
