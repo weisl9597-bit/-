@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { MerchantDetail } from '../components/merchants/merchant-detail';
 import { ProjectDetail } from '../components/projects/project-detail';
+import { ProjectsTable } from '../components/projects/projects-center-client';
 import { UploadResult } from '../components/admin/upload-result';
 import { MerchantDecisionPanel } from '../components/admin/merchant-decision-panel';
 import { createOperationsFilterController } from '../components/filters/use-operations-filters';
@@ -26,6 +27,7 @@ describe('merchant, project and admin UI', () => {
     const project = renderToStaticMarkup(createElement(ProjectDetail, {
       project: {
         id: 'P1::M1', sourceProjectId: 'P1', merchantId: 'M1', merchantName: '示例装企',
+        businessSource: 'DESIGNBAO', dataDate: '2026-08-20',
         followWithin30m: true, needsAnalyzed: true, hardInvite: false,
         needsCoaching: true, coached: null, improved: false,
       },
@@ -37,6 +39,22 @@ describe('merchant, project and admin UI', () => {
     expect(project).toContain('详细需求沟通/户型解析');
     expect(project).toContain('硬约沟通/量房');
     expect(project).toContain('/merchants?id=M1');
+  });
+
+  it('shows the merchant name as the primary project-table label and ID below it', () => {
+    const html = renderToStaticMarkup(createElement(ProjectsTable, {
+      items: [{
+        id: 'P1::M1', sourceProjectId: 'P1', merchantId: 'M1', merchantName: '示例装饰',
+        organizationId: 'city-1', businessSource: 'DESIGNBAO', dataDate: '2026-08-20',
+        assignedAt: '2026-08-20T00:00:00.000Z', needsCoaching: true,
+        coached: null, improved: false,
+      }],
+      onOpen: () => undefined,
+    }));
+    expect(html).toContain('<th>装企</th>');
+    expect(html).not.toContain('<th>商家ID</th>');
+    expect(html).toContain('<strong>示例装饰</strong>');
+    expect(html).toContain('class="secondary-id">M1</small>');
   });
 
   it('distinguishes a source with no merchant data from an unclassified merchant', () => {

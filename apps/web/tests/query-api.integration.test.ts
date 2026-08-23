@@ -14,7 +14,12 @@ import {
   type LegacyMerchantListRepository,
   type MerchantListRepository,
 } from '../lib/queries/merchants';
-import { listProjects, type ProjectListRepository } from '../lib/queries/projects';
+import {
+  listProjects,
+  listProjectsForRollout,
+  type LegacyProjectListRepository,
+  type ProjectListRepository,
+} from '../lib/queries/projects';
 import { parseMerchantRequest, parseMetricRequest, parseProjectRequest } from '../lib/queries/request';
 
 const cityScope: OrganizationScope = {
@@ -138,6 +143,58 @@ describe('organization-scoped query contracts', () => {
     expect(legacyLoads).toBe(1);
     expect(sourceAwareLoads).toBe(0);
     await listMerchantsForRollout(true, { source: 'XIAOHONGSHU' }, cityScope, {
+      repository, legacyRepository, resolveSelection,
+    });
+    expect(sourceAwareLoads).toBe(1);
+  });
+
+  it('lists latest project snapshots with merchant names and actual sources', async () => {
+    let receivedSelection: OperationsSelection | undefined;
+    const repository: ProjectListRepository = {
+      list: async (query) => {
+        receivedSelection = query.selection;
+        return {
+          items: [{
+            id: 'P1::M1', sourceProjectId: 'P1', merchantId: 'M1',
+            merchantName: '示例装饰', organizationId: 'city-1',
+            businessSource: 'DESIGNBAO', dataDate: '2026-08-20',
+            assignedAt: '2026-08-20T00:00:00.000Z',
+            needsCoaching: true, coached: null, improved: false,
+          }],
+          nextCursor: null,
+        };
+      },
+    };
+    const result = await listProjects(
+      { source: 'DESIGNBAO', cityId: 'city-1' }, cityScope, repository,
+      async () => ({ source: 'DESIGNBAO', cityId: 'city-1', organizationIds: ['city-1'] }),
+    );
+    expect(receivedSelection).toMatchObject({ source: 'DESIGNBAO', organizationIds: ['city-1'] });
+    expect(result.items[0]).toMatchObject({
+      id: 'P1::M1', merchantId: 'M1', merchantName: '示例装饰',
+      businessSource: 'DESIGNBAO', assignedAt: '2026-08-20T00:00:00.000Z',
+    });
+  });
+
+  it('uses legacy project data only while source-aware rollout is disabled', async () => {
+    let legacyLoads = 0;
+    let sourceAwareLoads = 0;
+    const empty = { items: [], nextCursor: null };
+    const legacyRepository: LegacyProjectListRepository = {
+      list: async () => { legacyLoads += 1; return empty; },
+    };
+    const repository: ProjectListRepository = {
+      list: async () => { sourceAwareLoads += 1; return empty; },
+    };
+    const resolveSelection = async (): Promise<OperationsSelection> => ({
+      source: 'XIAOHONGSHU', organizationIds: ['city-1'],
+    });
+    await listProjectsForRollout(false, { source: 'XIAOHONGSHU' }, cityScope, {
+      repository, legacyRepository, resolveSelection,
+    });
+    expect(legacyLoads).toBe(1);
+    expect(sourceAwareLoads).toBe(0);
+    await listProjectsForRollout(true, { source: 'XIAOHONGSHU' }, cityScope, {
       repository, legacyRepository, resolveSelection,
     });
     expect(sourceAwareLoads).toBe(1);

@@ -59,6 +59,7 @@ export function parseProjectRequest(url: URL): ProjectListQuery {
     throw new Error('Invalid abnormal value');
   }
   return {
+    ...parseOperationsFilter(url),
     cursor: url.searchParams.get('cursor'),
     limit: optionalInteger(url, 'limit'),
     abnormal: abnormal === null ? undefined : abnormal === 'true',
