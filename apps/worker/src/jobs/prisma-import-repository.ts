@@ -134,32 +134,36 @@ export function createPrismaImportRepository(database: typeof db): ImportBatchRe
       await upsertOrganizations(writer, plan.organizations);
       await upsertMerchants(writer, plan.merchants);
       await upsertProjects(writer, plan.projects);
-      const organizationByProject = new Map(
-        plan.projects.map((project) => [project.id, project.organizationId]),
-      );
 
-      await transaction.projectSnapshot.deleteMany({ where: { uploadBatchId: input.batchId } });
+      const dataDate = dateOnly(input.dataDate);
+      await transaction.projectSnapshot.deleteMany({
+        where: {
+          dataDate,
+          projectId: { in: plan.projectSnapshots.map((snapshot) => snapshot.projectId) },
+        },
+      });
       await transaction.projectSnapshot.createMany({
-        data: input.records.map((record) => ({
-          dataDate: dateOnly(input.dataDate),
-          projectId: record.assignmentId,
-          sourceProjectId: record.projectId,
-          merchantId: record.merchantId,
-          organizationId: organizationByProject.get(record.assignmentId)!,
+        data: plan.projectSnapshots.map((snapshot) => ({
+          dataDate,
+          projectId: snapshot.projectId,
+          sourceProjectId: snapshot.sourceProjectId,
+          merchantId: snapshot.merchantId,
+          organizationId: snapshot.organizationId,
           uploadBatchId: input.batchId,
-          followWithin30m: record.followWithin30m,
-          needsAnalyzed: record.needsAnalyzed,
-          hardInvite: record.hardInvite,
+          businessSource: snapshot.businessSource,
+          assignedAt: dateOnly(snapshot.assignedAt),
+          followWithin30m: snapshot.followWithin30m,
+          needsAnalyzed: snapshot.needsAnalyzed,
+          hardInvite: snapshot.hardInvite,
           sopCompliant:
-            record.followWithin30m === true &&
-            record.needsAnalyzed === true &&
-            record.hardInvite === false,
-          needsCoaching: record.needsCoaching,
-          coached: record.coached,
-          improved: record.improved,
-          raw: json(record.raw),
+            snapshot.followWithin30m === true &&
+            snapshot.needsAnalyzed === true &&
+            snapshot.hardInvite === false,
+          needsCoaching: snapshot.needsCoaching,
+          coached: snapshot.coached,
+          improved: snapshot.improved,
+          raw: json(snapshot.raw),
         })),
-        skipDuplicates: true,
       });
       await transaction.job.createMany({
         data: ['METRICS', 'RULES'].map((type) => ({
@@ -189,3 +193,4 @@ export function createPrismaImportRepository(database: typeof db): ImportBatchRe
 }
 
 export const prismaImportRepository = createPrismaImportRepository(db);
+

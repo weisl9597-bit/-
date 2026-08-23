@@ -34,6 +34,7 @@ function record(overrides: Partial<CanonicalProjectRow> = {}): CanonicalProjectR
     merchantName: "商家'一",
     assignmentId: 'project-1::merchant-1',
     projectId: 'project-1',
+    businessSource: 'DESIGNBAO',
     category: null,
     assignedAt: '2026-08-23',
     followWithin30m: true,

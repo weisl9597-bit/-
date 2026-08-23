@@ -16,6 +16,7 @@ function record(
     merchantName: '旧商家名称',
     assignmentId: 'project-1::merchant-1',
     projectId: 'project-1',
+    businessSource: 'DESIGNBAO',
     category: null,
     assignedAt: '2026-08-22',
     followWithin30m: true,
@@ -61,6 +62,29 @@ describe('bulk import write plan', () => {
       assignedAt: new Date('2026-08-23T00:00:00.000Z'),
       needsCoaching: true,
     });
+    expect(plan.projectSnapshots[0]).toMatchObject({
+      projectId: 'project-1::merchant-1',
+      merchantId: 'merchant-1',
+      businessSource: 'DESIGNBAO',
+      assignedAt: '2026-08-23',
+    });
+  });
+
+  it('keeps Designbao and Xiaohongshu as explicit snapshot facts', () => {
+    const plan = buildBulkImportPlan([
+      record(),
+      record({
+        sourceRow: 3,
+        assignmentId: 'project-red::merchant-1',
+        projectId: 'project-red',
+        businessSource: 'XIAOHONGSHU',
+      }),
+    ]);
+
+    expect(plan.projectSnapshots.map(({ businessSource }) => businessSource)).toEqual([
+      'DESIGNBAO',
+      'XIAOHONGSHU',
+    ]);
   });
 
   it('keeps cities with the same name separate when they belong to different regions', () => {

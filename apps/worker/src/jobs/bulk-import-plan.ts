@@ -33,10 +33,27 @@ export type ProjectWrite = {
   improved: boolean | null;
 };
 
+export type ProjectSnapshotWrite = {
+  projectId: string;
+  sourceProjectId: string;
+  merchantId: string;
+  organizationId: string;
+  businessSource: CanonicalProjectRow['businessSource'];
+  assignedAt: string;
+  followWithin30m: boolean | null;
+  needsAnalyzed: boolean | null;
+  hardInvite: boolean | null;
+  needsCoaching: boolean | null;
+  coached: boolean | null;
+  improved: boolean | null;
+  raw: CanonicalProjectRow['raw'];
+};
+
 export type BulkImportPlan = {
   organizations: OrganizationWrite[];
   merchants: MerchantWrite[];
   projects: ProjectWrite[];
+  projectSnapshots: ProjectSnapshotWrite[];
 };
 
 function organizationId(level: 'national' | 'region' | 'city', path: string): string {
@@ -61,6 +78,7 @@ export function buildBulkImportPlan(records: CanonicalProjectRow[]): BulkImportP
   const organizations = new Map<string, OrganizationWrite>();
   const merchants = new Map<string, MerchantWrite>();
   const projects = new Map<string, ProjectWrite>();
+  const projectSnapshots = new Map<string, ProjectSnapshotWrite>();
   const nationalPath = '/china';
   const nationalId = organizationId('national', nationalPath);
 
@@ -115,12 +133,28 @@ export function buildBulkImportPlan(records: CanonicalProjectRow[]): BulkImportP
       coached: record.coached,
       improved: record.improved,
     });
+    projectSnapshots.set(record.assignmentId, {
+      projectId: record.assignmentId,
+      sourceProjectId: record.projectId,
+      merchantId: record.merchantId,
+      organizationId: cityId,
+      businessSource: record.businessSource,
+      assignedAt: record.assignedAt,
+      followWithin30m: record.followWithin30m,
+      needsAnalyzed: record.needsAnalyzed,
+      hardInvite: record.hardInvite,
+      needsCoaching: record.needsCoaching,
+      coached: record.coached,
+      improved: record.improved,
+      raw: record.raw,
+    });
   }
 
   return {
     organizations: [...organizations.values()],
     merchants: [...merchants.values()],
     projects: [...projects.values()],
+    projectSnapshots: [...projectSnapshots.values()],
   };
 }
 
