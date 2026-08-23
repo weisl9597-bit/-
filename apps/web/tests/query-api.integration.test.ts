@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { OrganizationScope } from '../lib/auth/scope';
-import { getDashboard, type DashboardRepository } from '../lib/queries/dashboard';
+import {
+  getDashboard,
+  getDashboardForRollout,
+  type DashboardRepository,
+  type LegacyDashboardRepository,
+} from '../lib/queries/dashboard';
+import type { OperationsSelection } from '../lib/queries/operations-scope';
 import { getMetricCenterData } from '../lib/queries/metrics';
 import { listMerchants, type MerchantListRepository } from '../lib/queries/merchants';
 import { listProjects, type ProjectListRepository } from '../lib/queries/projects';
@@ -12,14 +18,13 @@ const cityScope: OrganizationScope = {
 
 describe('organization-scoped query contracts', () => {
   it('returns the dashboard contract and applies the server-side scope', async () => {
-    let receivedScope: OrganizationScope | undefined;
+    let receivedSelection: OperationsSelection | undefined;
     const repository: DashboardRepository = {
-      async load(scope) {
-        receivedScope = scope;
+      async load(selection) {
+        receivedSelection = selection;
         return {
-          dataDate: '2026-08-21', merchantTotal: 3,
+          dataDate: '2026-08-21', merchantTotal: 2,
           classifications: [
-            { merchantId: 'M1', classification: 'A' },
             { merchantId: 'M2', classification: 'B' },
             { merchantId: 'M3', classification: 'C_CANDIDATE' },
           ],
@@ -30,13 +35,53 @@ describe('organization-scoped query contracts', () => {
       },
     };
 
-    await expect(getDashboard(cityScope, repository)).resolves.toMatchObject({
+    await expect(getDashboard(
+      { source: 'XIAOHONGSHU', cityId: 'city-1' },
+      cityScope,
+      repository,
+      async () => ({
+        source: 'XIAOHONGSHU', cityId: 'city-1', organizationIds: ['city-1'],
+      }),
+    )).resolves.toMatchObject({
       dataDate: '2026-08-21',
-      summary: { merchantTotal: 3, abnormalProjects: 1, coachingDue: 1, unimproved: 1 },
-      merchantStructure: { A: 1, B: 1, C_CANDIDATE: 1 },
+      source: 'XIAOHONGSHU',
+      summary: { merchantTotal: 2, abnormalProjects: 1, coachingDue: 1, unimproved: 1 },
+      merchantStructure: { A: 0, B: 1, C_CANDIDATE: 1 },
       alerts: { coaching: [expect.any(Object)], improvement: [expect.any(Object)], projects: [expect.any(Object)] },
     });
-    expect(receivedScope).toEqual(cityScope);
+    expect(receivedSelection).toMatchObject({
+      source: 'XIAOHONGSHU', organizationIds: ['city-1'],
+    });
+  });
+
+  it('keeps the legacy dashboard path until the source-aware rollout is enabled', async () => {
+    let legacyLoads = 0;
+    let sourceAwareLoads = 0;
+    const facts = {
+      dataDate: '2026-08-21', merchantTotal: 0, classifications: [], projects: [],
+    };
+    const legacyRepository: LegacyDashboardRepository = {
+      load: async () => { legacyLoads += 1; return facts; },
+    };
+    const repository: DashboardRepository = {
+      load: async () => { sourceAwareLoads += 1; return facts; },
+    };
+    const resolveSelection = async (): Promise<OperationsSelection> => ({
+      source: 'XIAOHONGSHU', organizationIds: ['city-1'],
+    });
+
+    await getDashboardForRollout(
+      false, { source: 'XIAOHONGSHU' }, cityScope,
+      { repository, legacyRepository, resolveSelection },
+    );
+    expect(legacyLoads).toBe(1);
+    expect(sourceAwareLoads).toBe(0);
+
+    await getDashboardForRollout(
+      true, { source: 'XIAOHONGSHU' }, cityScope,
+      { repository, legacyRepository, resolveSelection },
+    );
+    expect(sourceAwareLoads).toBe(1);
   });
 
   it('returns numerator and denominator and rejects unknown metric IDs', async () => {
