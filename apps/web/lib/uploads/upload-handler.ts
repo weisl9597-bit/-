@@ -14,6 +14,10 @@ export type UploadRecord = {
   acceptedRows: number;
   errorCount: number;
   warningCount: number;
+  failureStage?: string | null;
+  failureMessage?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
   skippedRows?: number;
   issues?: Array<{
     code: string;
@@ -40,6 +44,7 @@ export type UploadHandlerDependencies = {
 export type UploadStatusDependencies = {
   authorize(request: Request): Promise<{ userId: string; role: string } | null>;
   findById(batchId: string): Promise<UploadRecord | null>;
+  findLatest(): Promise<UploadRecord | null>;
 };
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
@@ -116,3 +121,13 @@ export function createUploadStatusHandler(dependencies: UploadStatusDependencies
     return batch ? json(batch, 200) : json({ error: 'NOT_FOUND' }, 404);
   };
 }
+
+export function createLatestUploadHandler(dependencies: UploadStatusDependencies) {
+  return async function getLatestUpload(request: Request): Promise<Response> {
+    const actor = await dependencies.authorize(request);
+    if (!actor) return json({ error: 'UNAUTHENTICATED' }, 401);
+    if (actor.role !== 'ADMIN') return json({ error: 'FORBIDDEN' }, 403);
+    return json(await dependencies.findLatest(), 200);
+  };
+}
+

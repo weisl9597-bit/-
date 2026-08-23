@@ -29,6 +29,10 @@ function mapBatch(batch: {
   acceptedRows: number;
   errorCount: number;
   warningCount: number;
+  failureStage: string | null;
+  failureMessage: string | null;
+  startedAt: Date | null;
+  finishedAt: Date | null;
 }, issues: UploadRecord['issues'] = []): UploadRecord {
   return {
     id: batch.id,
@@ -42,6 +46,10 @@ function mapBatch(batch: {
     acceptedRows: batch.acceptedRows,
     errorCount: batch.errorCount,
     warningCount: batch.warningCount,
+    failureStage: batch.failureStage,
+    failureMessage: batch.failureMessage,
+    startedAt: batch.startedAt?.toISOString() ?? null,
+    finishedAt: batch.finishedAt?.toISOString() ?? null,
     skippedRows: Math.max(batch.totalRows - batch.acceptedRows, 0),
     issues,
   };
@@ -153,4 +161,25 @@ export const prismaUploadStatusDependencies: UploadStatusDependencies = {
     });
     return batch ? mapBatch(batch, batch.errors) : null;
   },
+  async findLatest() {
+    const batch = await db.uploadBatch.findFirst({
+      orderBy: [{ createdAt: 'desc' }],
+      include: {
+        errors: {
+          where: { code: { in: ['MISSING_ID', 'UNKNOWN_ORGANIZATION'] } },
+          orderBy: [{ sourceSheet: 'asc' }, { sourceRow: 'asc' }],
+          take: 50,
+          select: {
+            code: true,
+            sourceSheet: true,
+            sourceRow: true,
+            field: true,
+            message: true,
+          },
+        },
+      },
+    });
+    return batch ? mapBatch(batch, batch.errors) : null;
+  },
 };
+

@@ -3,9 +3,11 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  createLatestUploadHandler,
   createUploadHandler,
   type UploadHandlerDependencies,
   type UploadRecord,
+  type UploadStatusDependencies,
 } from '../lib/uploads/upload-handler';
 
 function setup() {
@@ -100,4 +102,39 @@ describe('admin upload API', () => {
       status: 'QUEUED',
     });
   });
+
+  it('returns the latest upload including its terminal failure reason', async () => {
+    const latest: UploadRecord = {
+      id: 'batch-failed',
+      fileName: 'designbao.xlsx',
+      fileHash: 'hash',
+      objectKey: 'uploads/designbao.xlsx',
+      dataDate: '2026-08-23',
+      uploadedById: 'admin-1',
+      status: 'FAILED',
+      totalRows: 0,
+      acceptedRows: 0,
+      errorCount: 0,
+      warningCount: 0,
+      failureStage: 'IMPORT',
+      failureMessage: '数据库写入超时',
+    };
+    const dependencies: UploadStatusDependencies = {
+      async authorize() { return { userId: 'admin-1', role: 'ADMIN' }; },
+      async findById() { return null; },
+      async findLatest() { return latest; },
+    };
+    const handler = createLatestUploadHandler(dependencies);
+
+    const response = await handler(new Request('http://localhost/api/admin/uploads'));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      id: 'batch-failed',
+      status: 'FAILED',
+      failureStage: 'IMPORT',
+      failureMessage: '数据库写入超时',
+    });
+  });
 });
+
