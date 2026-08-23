@@ -14,14 +14,17 @@ async function saveDecision(input: MerchantDecisionInput) {
     });
     if (!merchant) throw new Error('MERCHANT_NOT_FOUND');
 
-    const current = await transaction.merchantClassificationSnapshot.findFirst({
-      where: { merchantId: input.merchantId },
-      orderBy: [{ dataDate: 'desc' }, { createdAt: 'desc' }],
-    });
+    const current = input.businessSource
+      ? await transaction.merchantClassificationSnapshot.findFirst({
+          where: { merchantId: input.merchantId, businessSource: input.businessSource },
+          orderBy: [{ dataDate: 'desc' }, { createdAt: 'desc' }],
+        })
+      : null;
     const created = await transaction.merchantOverride.create({
       data: {
         merchantId: input.merchantId,
         type: input.type,
+        businessSource: input.businessSource,
         classification: input.classification,
         startDate: dateOnly(input.startDate),
         endDate: input.endDate ? dateOnly(input.endDate) : null,
@@ -56,6 +59,7 @@ async function saveDecision(input: MerchantDecisionInput) {
         afterValue: {
           overrideId: created.id,
           type: input.type,
+          businessSource: input.businessSource,
           classification: input.classification,
           startDate: input.startDate,
           endDate: input.endDate,
@@ -71,11 +75,13 @@ export const prismaMerchantDecisionDependencies: MerchantDecisionDependencies = 
   saveDecision,
 };
 
-export async function listMerchantDecisionCandidates() {
+export async function listMerchantDecisionCandidates(
+  businessSource: 'DESIGNBAO' | 'XIAOHONGSHU' | 'ALL' = 'DESIGNBAO',
+) {
   const latestDate = await db.merchantClassificationSnapshot.aggregate({ _max: { dataDate: true } });
   if (!latestDate._max.dataDate) return [];
   return db.merchantClassificationSnapshot.findMany({
-    where: { dataDate: latestDate._max.dataDate, requiresConfirmation: true },
+    where: { dataDate: latestDate._max.dataDate, businessSource, requiresConfirmation: true },
     orderBy: [{ classification: 'asc' }, { merchantId: 'asc' }],
     include: { merchant: { select: { name: true } } },
   });

@@ -2,6 +2,9 @@
   "name": "@designbao/rules",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "@designbao/domain": "workspace:*"
+  },
   "exports": {
     "./project-alerts": "./src/project-alerts.ts",
     "./merchant-classification": "./src/merchant-classification.ts",
@@ -9,3 +12,4 @@
     "./reasons": "./src/reasons.ts"
   }
 }
+

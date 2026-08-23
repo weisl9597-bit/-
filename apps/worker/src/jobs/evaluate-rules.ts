@@ -1,4 +1,5 @@
 import { db } from '@designbao/db/client';
+import type { ActualBusinessSource, SelectableBusinessSource } from '@designbao/domain/business-source';
 import { getPeriodBounds } from '@designbao/domain/period';
 import {
   evaluateRules,
@@ -25,6 +26,7 @@ function json(value: unknown): Prisma.InputJsonValue {
 
 type DailyMetric = {
   metricId: string;
+  businessSource: ActualBusinessSource | 'ALL';
   merchantId: string | null;
   organizationId: string;
   periodStart: Date;
@@ -32,6 +34,39 @@ type DailyMetric = {
   denominator: Prisma.Decimal | null;
   value: Prisma.Decimal | null;
 };
+
+type SourceScopedOverride = {
+  type: 'CONFIRM_C' | 'TEMP_EXEMPT' | 'PERMANENT_EXCLUDE' | 'MANUAL_CLASSIFICATION';
+  businessSource: SelectableBusinessSource | ActualBusinessSource | null;
+  classification?: MerchantClassificationInput['currentClassification'];
+  startDate?: Date;
+  endDate: Date | null;
+};
+
+export function sourceScopedOverrideState(
+  overrides: readonly SourceScopedOverride[],
+  businessSource: SelectableBusinessSource,
+) {
+  const scoped = overrides.filter((override) => (
+    override.businessSource === businessSource
+    || (override.type === 'PERMANENT_EXCLUDE' && override.businessSource === null)
+  ));
+  const temporary = scoped
+    .filter((override) => override.type === 'TEMP_EXEMPT' && override.endDate)
+    .sort((left, right) => right.endDate!.getTime() - left.endDate!.getTime())[0];
+  const manual = scoped
+    .filter((override) => override.type === 'MANUAL_CLASSIFICATION' && override.classification)
+    .sort((left, right) => (right.startDate?.getTime() ?? 0) - (left.startDate?.getTime() ?? 0))[0];
+  return {
+    cConfirmed: scoped.some((override) => override.type === 'CONFIRM_C'),
+    temporaryExemptUntil: temporary?.endDate ? dateString(temporary.endDate) : null,
+    permanentlyExcluded: scoped.some((override) => (
+      override.type === 'PERMANENT_EXCLUDE' && override.businessSource === null
+    )),
+    manualClassification: manual?.classification ?? null,
+    manualClassificationSince: manual?.startDate ? dateString(manual.startDate) : null,
+  };
+}
 
 function aggregateRate(rows: DailyMetric[]): number | null {
   const denominator = rows.reduce((sum, row) => sum + (number(row.denominator) ?? 0), 0);
@@ -58,19 +93,21 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
     const snapshots = await db.projectSnapshot.findMany({
       where: { uploadBatchId: batchId },
       select: {
-        projectId: true, merchantId: true, needsCoaching: true, coached: true, improved: true,
+        projectId: true, merchantId: true, businessSource: true,
+        needsCoaching: true, coached: true, improved: true,
       },
     });
-    return snapshots;
+    return snapshots.flatMap((snapshot) => snapshot.businessSource === 'ALL'
+      ? []
+      : [{ ...snapshot, businessSource: snapshot.businessSource as ActualBusinessSource }]);
   },
 
   async loadMerchantInputs({ dataDate, batchId }): Promise<MerchantClassificationInput[]> {
     const batchProjects = await db.projectSnapshot.findMany({
       where: { uploadBatchId: batchId },
-      select: { merchantId: true, organizationId: true },
-      distinct: ['merchantId'],
+      select: { merchantId: true, organizationId: true, businessSource: true, assignedAt: true },
     });
-    const merchantIds = batchProjects.map((row) => row.merchantId);
+    const merchantIds = [...new Set(batchProjects.map((row) => row.merchantId))];
     if (merchantIds.length === 0) return [];
     const cityByMerchant = new Map(batchProjects.map((row) => [row.merchantId, row.organizationId]));
     const currentDate = dateOnly(dataDate);
@@ -89,7 +126,7 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
         },
         select: {
           metricId: true, merchantId: true, organizationId: true, periodStart: true,
-          numerator: true, denominator: true, value: true,
+          businessSource: true, numerator: true, denominator: true, value: true,
         },
       }),
       db.merchantClassificationSnapshot.findMany({
@@ -102,16 +139,17 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
           OR: [{ endDate: null }, { endDate: { gte: currentDate } }],
         },
       }),
-      db.project.groupBy({
-        by: ['merchantId'], where: { merchantId: { in: merchantIds } },
-        _max: { assignedAt: true },
+      db.projectSnapshot.findMany({
+        where: { merchantId: { in: merchantIds }, businessSource: { in: ['DESIGNBAO', 'XIAOHONGSHU'] } },
+        select: { merchantId: true, businessSource: true, assignedAt: true },
       }),
     ]);
 
     const latestClassification = new Map<string, (typeof classifications)[number]>();
     for (const classification of classifications) {
-      if (!latestClassification.has(classification.merchantId)) {
-        latestClassification.set(classification.merchantId, classification);
+      const key = `${classification.merchantId}|${classification.businessSource}`;
+      if (!latestClassification.has(key)) {
+        latestClassification.set(key, classification);
       }
     }
     const overridesByMerchant = new Map<string, typeof overrides>();
@@ -120,11 +158,17 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
       values.push(override);
       overridesByMerchant.set(override.merchantId, values);
     }
-    const lastByMerchant = new Map(lastAssignments.map((row) => [row.merchantId, row._max.assignedAt]));
+    const sources = ['DESIGNBAO', 'XIAOHONGSHU', 'ALL'] as const;
+    const actualSources = (businessSource: SelectableBusinessSource): ActualBusinessSource[] => (
+      businessSource === 'ALL' ? ['DESIGNBAO', 'XIAOHONGSHU'] : [businessSource]
+    );
 
-    return merchantIds.map((merchantId) => {
+    return merchantIds.flatMap((merchantId) => sources.map((businessSource) => {
       const cityId = cityByMerchant.get(merchantId)!;
-      const merchantMetrics = metrics.filter((row) => row.merchantId === merchantId);
+      const includedSources = actualSources(businessSource);
+      const merchantMetrics = metrics.filter((row) => (
+        row.merchantId === merchantId && includedSources.includes(row.businessSource as ActualBusinessSource)
+      ));
       const sopRows = merchantMetrics.filter((row) => row.metricId === 'merchant_sop_compliance_rate');
       const recentStart = new Date(currentDate);
       recentStart.setUTCDate(recentStart.getUTCDate() - 13);
@@ -134,37 +178,48 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
       );
       const cityRows = metrics.filter((row) =>
         row.merchantId === null && row.organizationId === cityId
+        && includedSources.includes(row.businessSource as ActualBusinessSource)
         && row.metricId === 'project_open_rate' && row.periodStart >= recentStart,
       );
       const signedThisMonth = merchantMetrics.some((row) =>
         row.metricId === 'signed_project_count' && row.periodStart >= monthStart
         && (number(row.value) ?? 0) > 0,
       );
-      const current = latestClassification.get(merchantId);
+      const current = latestClassification.get(`${merchantId}|${businessSource}`);
       const activeOverrides = overridesByMerchant.get(merchantId) ?? [];
-      const temporary = activeOverrides
-        .filter((override) => override.type === 'TEMP_EXEMPT' && override.endDate)
-        .sort((left, right) => right.endDate!.getTime() - left.endDate!.getTime())[0];
+      const overrideState = sourceScopedOverrideState(activeOverrides, businessSource);
+      const assignedAt = lastAssignments
+        .filter((row) => row.merchantId === merchantId
+          && includedSources.includes(row.businessSource as ActualBusinessSource))
+        .reduce<Date | null>((latest, row) => (
+          latest === null || row.assignedAt > latest ? row.assignedAt : latest
+        ), null);
+      const dataAvailable = batchProjects.some((row) => row.merchantId === merchantId
+        && includedSources.includes(row.businessSource as ActualBusinessSource));
       return {
         merchantId,
+        businessSource,
+        dataAvailable,
         dataDate,
         sopRate: aggregateRate(recentSop),
         signedThisMonth,
         weeklySopRates: weeklyRates(sopRows),
         processMetric: aggregateRate(processRows),
         cityProcessAverage: aggregateRate(cityRows),
-        currentClassification: current?.classification ?? null,
-        classificationSince: current ? dateString(current.effectiveAt) : null,
-        lastAssignedAt: lastByMerchant.get(merchantId) ? dateString(lastByMerchant.get(merchantId)!) : null,
-        cConfirmed: activeOverrides.some((override) => override.type === 'CONFIRM_C'),
-        temporaryExemptUntil: temporary?.endDate ? dateString(temporary.endDate) : null,
-        permanentlyExcluded: activeOverrides.some((override) => override.type === 'PERMANENT_EXCLUDE'),
+        currentClassification: overrideState.manualClassification ?? current?.classification ?? null,
+        classificationSince: overrideState.manualClassificationSince
+          ?? (current ? dateString(current.effectiveAt) : null),
+        lastAssignedAt: assignedAt ? dateString(assignedAt) : null,
+        cConfirmed: overrideState.cConfirmed,
+        temporaryExemptUntil: overrideState.temporaryExemptUntil,
+        permanentlyExcluded: overrideState.permanentlyExcluded,
       };
-    });
+    }));
   },
 
   async persist({ dataDate, batchId, hits, decisions }) {
     await db.$transaction(async (transaction) => {
+      await transaction.ruleHit.deleteMany({ where: { sourceBatchId: batchId, version: 'v2' } });
       if (hits.length > 0) {
         await transaction.ruleHit.createMany({
           data: hits.map((hit) => ({
@@ -174,6 +229,7 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
             entityId: hit.projectId,
             projectId: hit.projectId,
             merchantId: hit.merchantId,
+            businessSource: hit.businessSource,
             dataDate: dateOnly(dataDate),
             evidence: json(hit.evidence),
             reason: hit.reason,
@@ -182,20 +238,38 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
           skipDuplicates: true,
         });
       }
-      if (decisions.length > 0) {
-        await transaction.merchantClassificationSnapshot.createMany({
-          data: decisions.map((item) => ({
+      for (const item of decisions) {
+        const row = {
             merchantId: item.merchantId,
             dataDate: dateOnly(dataDate),
-            classification: item.suggested,
+            businessSource: item.businessSource,
+            dataAvailable: item.dataAvailable,
+            classification: item.dataAvailable ? item.suggested : null,
             suggested: item.suggested,
             reason: item.reason,
             evidence: json(item.evidence),
             ruleVersion: item.ruleVersion,
             requiresConfirmation: item.requiresConfirmation,
             effectiveAt: dateOnly(dataDate),
-          })),
-          skipDuplicates: true,
+        };
+        const where = {
+          merchantId_dataDate_businessSource: {
+            merchantId: item.merchantId,
+            dataDate: dateOnly(dataDate),
+            businessSource: item.businessSource,
+          },
+        };
+        const existing = await transaction.merchantClassificationSnapshot.findUnique({ where });
+        await transaction.merchantClassificationSnapshot.upsert({
+          where,
+          create: row,
+          update: existing?.confirmedById ? {
+            suggested: row.suggested,
+            reason: row.reason,
+            evidence: row.evidence,
+            ruleVersion: row.ruleVersion,
+            dataAvailable: row.dataAvailable,
+          } : row,
         });
       }
     });
@@ -213,3 +287,4 @@ export async function runEvaluateRulesJob(input: {
     input.repository ?? prismaRuleEvaluationRepository,
   );
 }
+

@@ -13,6 +13,11 @@ export async function GET(request: Request) {
   const actor = await authenticateRequest(request);
   if (!actor) return Response.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   if (actor.role !== 'ADMIN') return Response.json({ error: 'FORBIDDEN' }, { status: 403 });
-  const items = await listMerchantDecisionCandidates();
+  const requestedSource = new URL(request.url).searchParams.get('source') ?? 'DESIGNBAO';
+  const source = ['DESIGNBAO', 'XIAOHONGSHU', 'ALL'].includes(requestedSource)
+    ? requestedSource as 'DESIGNBAO' | 'XIAOHONGSHU' | 'ALL'
+    : 'DESIGNBAO';
+  const items = await listMerchantDecisionCandidates(source);
   return Response.json({ items });
 }
+

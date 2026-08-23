@@ -1,3 +1,4 @@
+import type { SelectableBusinessSource } from '@designbao/domain/business-source';
 import { percentage } from './reasons';
 
 export type MerchantClassification =
@@ -10,6 +11,8 @@ export type MerchantClassification =
 
 export type MerchantClassificationInput = {
   merchantId: string;
+  businessSource: SelectableBusinessSource;
+  dataAvailable: boolean;
   dataDate: string;
   sopRate: number | null;
   signedThisMonth: boolean;
@@ -26,9 +29,11 @@ export type MerchantClassificationInput = {
 
 export type ClassificationDecision = {
   merchantId: string;
-  suggested: MerchantClassification;
+  businessSource: SelectableBusinessSource;
+  dataAvailable: boolean;
+  suggested: MerchantClassification | null;
   requiresConfirmation: boolean;
-  ruleVersion: 'v1';
+  ruleVersion: 'v2';
   evidence: Array<{ metricId: string; value: number | boolean | null; comparison?: number }>;
   reason: string;
 };
@@ -51,9 +56,11 @@ function decision(
 ): ClassificationDecision {
   return {
     merchantId: input.merchantId,
+    businessSource: input.businessSource,
+    dataAvailable: input.dataAvailable,
     suggested,
     requiresConfirmation,
-    ruleVersion: 'v1',
+    ruleVersion: 'v2',
     evidence: [
       { metricId: 'merchant_sop_compliance_rate', value: input.sopRate },
       { metricId: 'signed_this_month', value: input.signedThisMonth },
@@ -64,6 +71,19 @@ function decision(
 }
 
 export function classifyMerchant(input: MerchantClassificationInput): ClassificationDecision {
+  if (!input.dataAvailable) {
+    return {
+      merchantId: input.merchantId,
+      businessSource: input.businessSource,
+      dataAvailable: false,
+      suggested: null,
+      requiresConfirmation: false,
+      ruleVersion: 'v2',
+      evidence: [],
+      reason: '该来源暂无数据',
+    };
+  }
+
   if (input.permanentlyExcluded) {
     return decision(
       input,
@@ -121,3 +141,4 @@ export function classifyMerchant(input: MerchantClassificationInput): Classifica
   }
   return decision(input, 'A_RISK', `SOP达标率${percentage(input.sopRate)}或当月签约未满足A类条件。`);
 }
+

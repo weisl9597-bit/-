@@ -1,8 +1,10 @@
+import type { ActualBusinessSource } from '@designbao/domain/business-source';
 import { projectAlertReason } from './reasons';
 
 export type ProjectAlertInput = {
   projectId: string;
   merchantId: string;
+  businessSource: ActualBusinessSource;
   needsCoaching: boolean | null;
   coached: boolean | null;
   improved: boolean | null;
@@ -12,7 +14,8 @@ export type ProjectAlert = {
   code: 'NEEDS_COACHING' | 'NOT_IMPROVED' | 'COACHING_BLANK';
   projectId: string;
   merchantId: string;
-  ruleVersion: 'v1';
+  businessSource: ActualBusinessSource;
+  ruleVersion: 'v2';
   reason: string;
   evidence: Record<string, boolean | null>;
 };
@@ -32,8 +35,10 @@ export function evaluateProjectAlerts(input: ProjectAlertInput): ProjectAlert[] 
     code,
     projectId: input.projectId,
     merchantId: input.merchantId,
-    ruleVersion: 'v1',
+    businessSource: input.businessSource,
+    ruleVersion: 'v2',
     reason: projectAlertReason(code),
     evidence,
   }));
 }
+

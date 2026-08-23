@@ -80,7 +80,8 @@ describe('merchant, project and admin UI', () => {
 
   it('requires a reason and exposes candidate confirmation and exemption actions', () => {
     const html = renderToStaticMarkup(createElement(MerchantDecisionPanel, {
-      merchantId: 'M1', merchantName: '示例装企', suggested: 'C', reason: '连续两周未改善',
+      merchantId: 'M1', merchantName: '示例装企', businessSource: 'DESIGNBAO',
+      suggested: 'C', reason: '连续两周未改善',
       onSaved: () => undefined,
     }));
     expect(html).toContain('确认进入C类');

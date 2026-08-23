@@ -13,6 +13,7 @@ export type DecisionClassification = 'A' | 'A_RISK' | 'B' | 'C_CANDIDATE' | 'C' 
 
 export type MerchantDecisionInput = {
   merchantId: string;
+  businessSource: SelectableBusinessSource | null;
   type: MerchantDecisionType;
   classification: DecisionClassification | null;
   startDate: string;
@@ -32,6 +33,7 @@ const types = new Set<MerchantDecisionType>([
 const classifications = new Set<DecisionClassification>([
   'A', 'A_RISK', 'B', 'C_CANDIDATE', 'C', 'ELIMINATED',
 ]);
+const businessSources = new Set<SelectableBusinessSource>(['DESIGNBAO', 'XIAOHONGSHU', 'ALL']);
 
 function jsonError(error: string, status: number) {
   return Response.json({ error }, { status });
@@ -68,6 +70,16 @@ export function createMerchantDecisionHandler(
     if (!type) return jsonError('INVALID_DECISION_TYPE', 400);
     if (!reason) return jsonError('REASON_REQUIRED', 400);
 
+    const businessSource = type === 'PERMANENT_EXCLUDE'
+      ? null
+      : typeof body.businessSource === 'string'
+        && businessSources.has(body.businessSource as SelectableBusinessSource)
+        ? body.businessSource as SelectableBusinessSource
+        : null;
+    if (type !== 'PERMANENT_EXCLUDE' && !businessSource) {
+      return jsonError('BUSINESS_SOURCE_REQUIRED', 400);
+    }
+
     const startDate = body.startDate === undefined
       ? options.now().toISOString().slice(0, 10)
       : dateOnly(body.startDate);
@@ -90,7 +102,7 @@ export function createMerchantDecisionHandler(
 
     try {
       const saved = await dependencies.saveDecision({
-        merchantId, type, classification, startDate, endDate, reason, actorId: actor.userId,
+        merchantId, businessSource, type, classification, startDate, endDate, reason, actorId: actor.userId,
       });
       return Response.json({ id: saved.id, status: 'SAVED' }, { status: 201 });
     } catch (error) {
@@ -101,4 +113,6 @@ export function createMerchantDecisionHandler(
     }
   };
 }
+import type { SelectableBusinessSource } from '@designbao/domain/business-source';
+
 

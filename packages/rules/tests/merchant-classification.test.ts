@@ -3,7 +3,8 @@ import { classifyMerchant, type MerchantClassificationInput } from '../src/merch
 
 function input(overrides: Partial<MerchantClassificationInput> = {}): MerchantClassificationInput {
   return {
-    merchantId: 'M1', dataDate: '2026-08-21', sopRate: 70,
+    merchantId: 'M1', businessSource: 'DESIGNBAO', dataAvailable: true,
+    dataDate: '2026-08-21', sopRate: 70,
     signedThisMonth: true, weeklySopRates: [62, 66, 70],
     processMetric: 65, cityProcessAverage: 60,
     currentClassification: 'A', classificationSince: '2026-08-01',
@@ -15,7 +16,20 @@ function input(overrides: Partial<MerchantClassificationInput> = {}): MerchantCl
 
 describe('merchant classification', () => {
   it('classifies a compliant and signed merchant as A', () => {
-    expect(classifyMerchant(input())).toMatchObject({ suggested: 'A', requiresConfirmation: false });
+    expect(classifyMerchant(input())).toMatchObject({
+      businessSource: 'DESIGNBAO', dataAvailable: true, suggested: 'A',
+      requiresConfirmation: false, ruleVersion: 'v2',
+    });
+  });
+
+  it('preserves a source row with no data instead of inventing a classification', () => {
+    expect(classifyMerchant(input({
+      businessSource: 'XIAOHONGSHU', dataAvailable: false,
+    }))).toEqual({
+      merchantId: 'M1', businessSource: 'XIAOHONGSHU', dataAvailable: false,
+      suggested: null, requiresConfirmation: false, ruleVersion: 'v2',
+      evidence: [], reason: '该来源暂无数据',
+    });
   });
 
   it('flags an A merchant when SOP or monthly signing is insufficient', () => {
@@ -55,3 +69,4 @@ describe('merchant classification', () => {
     }))).toMatchObject({ suggested: 'A_RISK', requiresConfirmation: false });
   });
 });
+
