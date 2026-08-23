@@ -81,6 +81,23 @@ export function claimNextJob(workerId: string): Promise<ClaimedJob | null> {
   return claimNextJobWithDatabase(workerId, prismaJobDatabase, new Date());
 }
 
+export type FailJobResult = {
+  exhausted: boolean;
+  batchId: string | null;
+};
+
+export function safeErrorMessage(error: unknown): string {
+  const message = (error instanceof Error ? error.message : String(error))
+    .replace(/[\r\n]+/g, ' ')
+    .replace(
+      /\b(DATABASE_URL|OBJECT_STORAGE_[A-Z_]+|PASSWORD|SECRET|TOKEN|API_KEY)\s*=\s*\S+/gi,
+      '$1=***',
+    )
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^@\s/]+@/gi, '$1***@')
+    .trim();
+  return (message || 'Unknown worker error').slice(0, 500);
+}
+
 export async function completeJob(jobId: string): Promise<void> {
   await db.job.updateMany({
     where: { id: jobId, status: 'RUNNING' },
@@ -93,23 +110,85 @@ export async function completeJob(jobId: string): Promise<void> {
   });
 }
 
-export async function failJob(jobId: string, error: unknown): Promise<void> {
-  const job = await db.job.findUnique({
-    where: { id: jobId },
-    select: { attempts: true, maxAttempts: true },
-  });
-  if (!job) return;
-  const exhausted = job.attempts >= job.maxAttempts;
-  await db.job.update({
-    where: { id: jobId },
-    data: {
-      status: exhausted ? 'FAILED' : 'QUEUED',
-      availableAt: exhausted
-        ? undefined
-        : new Date(Date.now() + Math.min(job.attempts * 30_000, 5 * 60_000)),
-      lockedBy: null,
-      lockedAt: null,
-      lastError: error instanceof Error ? error.message : String(error),
-    },
+export async function failJobWithDatabase(
+  jobId: string,
+  error: unknown,
+  database: JobDatabase,
+  now = new Date(),
+): Promise<FailJobResult> {
+  return database.transaction(async (transaction) => {
+    const jobs = await transaction.query<{
+      type: ClaimedJob['type'];
+      sourceBatchId: string | null;
+      attempts: number;
+      maxAttempts: number;
+    }>(
+      `
+        SELECT "type", "sourceBatchId", "attempts", "maxAttempts"
+        FROM "Job"
+        WHERE "id" = $1
+        FOR UPDATE
+      `,
+      [jobId],
+    );
+    const job = jobs[0];
+    if (!job) return { exhausted: false, batchId: null };
+
+    const exhausted = job.attempts >= job.maxAttempts;
+    const message = safeErrorMessage(error);
+    if (exhausted) {
+      await transaction.execute(
+        `
+          UPDATE "Job"
+          SET "status" = 'FAILED',
+              "lockedBy" = NULL,
+              "lockedAt" = NULL,
+              "lastError" = $1,
+              "updatedAt" = $2
+          WHERE "id" = $3
+        `,
+        [message, now, jobId],
+      );
+    } else {
+      const availableAt = new Date(
+        now.getTime() + Math.min(job.attempts * 30_000, 5 * 60_000),
+      );
+      await transaction.execute(
+        `
+          UPDATE "Job"
+          SET "status" = 'QUEUED',
+              "availableAt" = $1,
+              "lockedBy" = NULL,
+              "lockedAt" = NULL,
+              "lastError" = $2,
+              "updatedAt" = $3
+          WHERE "id" = $4
+        `,
+        [availableAt, message, now, jobId],
+      );
+    }
+
+    if (exhausted && job.type === 'IMPORT' && job.sourceBatchId) {
+      await transaction.execute(
+        `
+          UPDATE "UploadBatch"
+          SET "status" = 'FAILED',
+              "failureStage" = 'IMPORT',
+              "failureMessage" = $1,
+              "finishedAt" = $2,
+              "updatedAt" = $2
+          WHERE "id" = $3
+            AND "status" <> 'SUCCEEDED'
+        `,
+        [message, now, job.sourceBatchId],
+      );
+    }
+
+    return { exhausted, batchId: job.sourceBatchId };
   });
 }
+
+export function failJob(jobId: string, error: unknown): Promise<FailJobResult> {
+  return failJobWithDatabase(jobId, error, prismaJobDatabase, new Date());
+}
+

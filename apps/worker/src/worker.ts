@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { claimNextJob, completeJob, failJob } from '@designbao/db/jobs';
 import { createConfiguredObjectStore } from '@designbao/storage/s3';
+import { formatJobLog } from './job-log';
 import { runClaimedJob } from './job-runner';
 import { runCalculateMetricsJob } from './jobs/calculate-metrics';
 import { runEvaluateRulesJob } from './jobs/evaluate-rules';
@@ -17,6 +18,7 @@ async function runOnce(): Promise<void> {
   try {
     const job = await claimNextJob(workerId);
     if (!job) return;
+    console.info(formatJobLog({ event: 'job_claimed', job }));
     try {
       await runClaimedJob(job, {
         importBatch: (batchId) => processImportBatch(batchId, {
@@ -27,8 +29,15 @@ async function runOnce(): Promise<void> {
         evaluateRules: runEvaluateRulesJob,
       });
       await completeJob(job.id);
+      console.info(formatJobLog({ event: 'job_succeeded', job }));
     } catch (error) {
-      await failJob(job.id, error);
+      const failure = await failJob(job.id, error);
+      console.error(formatJobLog({
+        event: 'job_failed',
+        job,
+        error,
+        exhausted: failure.exhausted,
+      }));
     }
   } finally {
     working = false;
@@ -37,3 +46,4 @@ async function runOnce(): Promise<void> {
 
 void runOnce();
 setInterval(() => void runOnce(), 1_000);
+
