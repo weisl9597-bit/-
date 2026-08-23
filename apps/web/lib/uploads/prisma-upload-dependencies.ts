@@ -91,7 +91,7 @@ export const prismaUploadDependencies: UploadHandlerDependencies = {
       async findImportJob(batchId) {
         return db.job.findFirst({
           where: { type: 'IMPORT', sourceBatchId: batchId },
-          select: { id: true, status: true },
+          select: { id: true, status: true, lockedAt: true },
         });
       },
       async reset(batchId, jobId) {

@@ -6,6 +6,7 @@ export type RecoverableUpload = {
 export type ImportJobState = {
   id: string;
   status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+  lockedAt: Date | null;
 };
 
 export type RetryUploadStore = {
@@ -16,14 +17,20 @@ export type RetryUploadStore = {
 export async function retryRecoverableUpload<T extends RecoverableUpload>(
   batch: T,
   store: RetryUploadStore,
+  now = new Date(),
 ): Promise<T> {
   if (batch.status !== 'PROCESSING' && batch.status !== 'FAILED') return batch;
   const job = await store.findImportJob(batch.id);
   if (!job) return batch;
+  const staleBefore = now.getTime() - 15 * 60_000;
+  const abandonedRunningJob = batch.status === 'PROCESSING' &&
+    job.status === 'RUNNING' &&
+    job.lockedAt !== null &&
+    job.lockedAt.getTime() <= staleBefore;
   const exhaustedProcessing = batch.status === 'PROCESSING' && job.status === 'FAILED';
   const completedFailedBatch = batch.status === 'FAILED' &&
     (job.status === 'FAILED' || job.status === 'SUCCEEDED');
-  if (!exhaustedProcessing && !completedFailedBatch) return batch;
+  if (!abandonedRunningJob && !exhaustedProcessing && !completedFailedBatch) return batch;
 
   await store.reset(batch.id, job.id);
   return { ...batch, status: 'QUEUED' };
