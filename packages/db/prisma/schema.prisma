@@ -70,6 +70,13 @@ enum MerchantClassification {
   ELIMINATED
 }
 
+enum BusinessSource {
+  DESIGNBAO
+  XIAOHONGSHU
+  OTHER
+  ALL
+}
+
 enum RuleEntityType {
   PROJECT
   MERCHANT
@@ -111,41 +118,41 @@ enum AuditEntityType {
 }
 
 model Organization {
-  id              String            @id @default(cuid())
-  code            String?           @unique
-  name            String
-  level           OrganizationLevel
-  path            String            @unique
-  parentId        String?
-  parent          Organization?     @relation("OrganizationTree", fields: [parentId], references: [id])
-  children        Organization[]    @relation("OrganizationTree")
-  userScopes      UserScope[]
-  merchants       Merchant[]
-  projects        Project[]
+  id               String            @id @default(cuid())
+  code             String?           @unique
+  name             String
+  level            OrganizationLevel
+  path             String            @unique
+  parentId         String?
+  parent           Organization?     @relation("OrganizationTree", fields: [parentId], references: [id])
+  children         Organization[]    @relation("OrganizationTree")
+  userScopes       UserScope[]
+  merchants        Merchant[]
+  projects         Project[]
   projectSnapshots ProjectSnapshot[]
-  metricSnapshots MetricSnapshot[]
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  metricSnapshots  MetricSnapshot[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
   @@index([parentId])
   @@index([level])
 }
 
 model User {
-  id                  String            @id @default(cuid())
-  email               String            @unique
-  passwordHash        String
-  name                String
-  role                UserRole
-  active              Boolean           @default(true)
-  scopes              UserScope[]
-  sessions            Session[]
-  uploadedBatches     UploadBatch[]
+  id                       String                           @id @default(cuid())
+  email                    String                           @unique
+  passwordHash             String
+  name                     String
+  role                     UserRole
+  active                   Boolean                          @default(true)
+  scopes                   UserScope[]
+  sessions                 Session[]
+  uploadedBatches          UploadBatch[]
   confirmedClassifications MerchantClassificationSnapshot[] @relation("ClassificationConfirmer")
-  merchantOverrides   MerchantOverride[]
-  auditLogs           AuditLog[]
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  merchantOverrides        MerchantOverride[]
+  auditLogs                AuditLog[]
+  createdAt                DateTime                         @default(now())
+  updatedAt                DateTime                         @updatedAt
 }
 
 model UserScope {
@@ -193,57 +200,57 @@ model Merchant {
 }
 
 model Project {
-  id               String        @id
-  sourceProjectId  String
-  merchantId       String
-  organizationId   String
-  merchant         Merchant      @relation(fields: [merchantId], references: [id])
-  organization     Organization  @relation(fields: [organizationId], references: [id])
-  assignedAt       DateTime
-  status           ProjectStatus @default(UNKNOWN)
-  followWithin30m  Boolean?
-  needsAnalyzed    Boolean?
-  hardInvite       Boolean?
-  needsCoaching    Boolean?
-  coached          Boolean?
-  improved         Boolean?
-  snapshots        ProjectSnapshot[]
-  ruleHits         RuleHit[]
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id              String            @id
+  sourceProjectId String
+  merchantId      String
+  organizationId  String
+  merchant        Merchant          @relation(fields: [merchantId], references: [id])
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  assignedAt      DateTime
+  status          ProjectStatus     @default(UNKNOWN)
+  followWithin30m Boolean?
+  needsAnalyzed   Boolean?
+  hardInvite      Boolean?
+  needsCoaching   Boolean?
+  coached         Boolean?
+  improved        Boolean?
+  snapshots       ProjectSnapshot[]
+  ruleHits        RuleHit[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
+  @@unique([sourceProjectId, merchantId], name: "project_source_merchant")
   @@index([merchantId])
   @@index([sourceProjectId])
   @@index([organizationId])
   @@index([assignedAt])
-  @@unique([sourceProjectId, merchantId], name: "project_source_merchant")
 }
 
 model UploadBatch {
-  id              String       @id @default(cuid())
-  fileName        String
-  fileHash        String
-  objectKey       String?
-  dataDate        DateTime     @db.Date
-  status          UploadStatus @default(QUEUED)
-  uploadedById    String?
-  uploadedBy      User?        @relation(fields: [uploadedById], references: [id])
-  totalRows       Int          @default(0)
-  acceptedRows    Int          @default(0)
-  warningCount    Int          @default(0)
-  errorCount      Int          @default(0)
-  failureStage    String?
-  failureMessage  String?
-  rows            UploadRow[]
-  errors          UploadError[]
+  id               String            @id @default(cuid())
+  fileName         String
+  fileHash         String
+  objectKey        String?
+  dataDate         DateTime          @db.Date
+  status           UploadStatus      @default(QUEUED)
+  uploadedById     String?
+  uploadedBy       User?             @relation(fields: [uploadedById], references: [id])
+  totalRows        Int               @default(0)
+  acceptedRows     Int               @default(0)
+  warningCount     Int               @default(0)
+  errorCount       Int               @default(0)
+  failureStage     String?
+  failureMessage   String?
+  rows             UploadRow[]
+  errors           UploadError[]
   projectSnapshots ProjectSnapshot[]
-  metricSnapshots MetricSnapshot[]
-  ruleHits        RuleHit[]
-  jobs            Job[]
-  startedAt       DateTime?
-  finishedAt      DateTime?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  metricSnapshots  MetricSnapshot[]
+  ruleHits         RuleHit[]
+  jobs             Job[]
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
   @@unique([fileHash, dataDate])
   @@index([dataDate, status])
@@ -279,36 +286,39 @@ model UploadError {
 }
 
 model ProjectSnapshot {
-  id               String        @id @default(cuid())
-  dataDate         DateTime      @db.Date
-  projectId        String
-  sourceProjectId  String
-  merchantId       String
-  organizationId   String
-  uploadBatchId    String
-  project          Project       @relation(fields: [projectId], references: [id])
-  merchant         Merchant      @relation(fields: [merchantId], references: [id])
-  organization     Organization  @relation(fields: [organizationId], references: [id])
-  uploadBatch      UploadBatch   @relation(fields: [uploadBatchId], references: [id])
-  status           ProjectStatus @default(UNKNOWN)
-  followWithin30m  Boolean?
-  needsAnalyzed    Boolean?
-  hardInvite       Boolean?
-  sopCompliant     Boolean       @default(false)
-  needsCoaching    Boolean?
-  coached          Boolean?
-  improved         Boolean?
-  raw              Json          @default("{}")
-  createdAt        DateTime      @default(now())
+  id              String         @id @default(cuid())
+  dataDate        DateTime       @db.Date
+  businessSource  BusinessSource
+  assignedAt      DateTime
+  projectId       String
+  sourceProjectId String
+  merchantId      String
+  organizationId  String
+  uploadBatchId   String
+  project         Project        @relation(fields: [projectId], references: [id])
+  merchant        Merchant       @relation(fields: [merchantId], references: [id])
+  organization    Organization   @relation(fields: [organizationId], references: [id])
+  uploadBatch     UploadBatch    @relation(fields: [uploadBatchId], references: [id])
+  status          ProjectStatus  @default(UNKNOWN)
+  followWithin30m Boolean?
+  needsAnalyzed   Boolean?
+  hardInvite      Boolean?
+  sopCompliant    Boolean        @default(false)
+  needsCoaching   Boolean?
+  coached         Boolean?
+  improved        Boolean?
+  raw             Json           @default("{}")
+  createdAt       DateTime       @default(now())
 
   @@unique([dataDate, projectId], name: "project_snapshot_per_day")
   @@index([sourceProjectId, dataDate])
   @@index([merchantId, dataDate])
   @@index([organizationId, dataDate])
+  @@index([businessSource, organizationId, dataDate])
 }
 
 model MetricDefinition {
-  id             String          @id
+  id             String           @id
   name           String
   groupId        String
   groupName      String
@@ -316,11 +326,11 @@ model MetricDefinition {
   direction      MetricDirection
   source         MetricSource
   sortOrder      Int
-  enabled        Boolean         @default(true)
-  formulaVersion String          @default("v1")
+  enabled        Boolean          @default(true)
+  formulaVersion String           @default("v1")
   snapshots      MetricSnapshot[]
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   @@index([groupId, sortOrder])
 }
@@ -337,6 +347,7 @@ model MetricSnapshot {
   merchantId     String?
   merchant       Merchant?        @relation(fields: [merchantId], references: [id])
   dimensionKey   String
+  businessSource BusinessSource
   value          Decimal?         @db.Decimal(18, 4)
   numerator      Decimal?         @db.Decimal(18, 4)
   denominator    Decimal?         @db.Decimal(18, 4)
@@ -346,29 +357,33 @@ model MetricSnapshot {
   formulaVersion String
   createdAt      DateTime         @default(now())
 
-  @@unique([metricId, grain, periodStart, organizationId, dimensionKey, sourceBatchId], name: "metric_snapshot_grain")
+  @@unique([metricId, grain, periodStart, organizationId, dimensionKey, businessSource, sourceBatchId], name: "metric_snapshot_grain", map: "MetricSnapshot_source_dimension_batch_key")
   @@index([organizationId, periodStart])
   @@index([merchantId, periodStart])
+  @@index([businessSource, organizationId, periodStart])
 }
 
 model MerchantClassificationSnapshot {
-  id               String                 @id @default(cuid())
-  merchantId       String
-  merchant         Merchant               @relation(fields: [merchantId], references: [id])
-  dataDate         DateTime               @db.Date
-  classification   MerchantClassification
-  suggested        MerchantClassification
-  reason           String
-  evidence         Json
-  ruleVersion      String
-  requiresConfirmation Boolean            @default(false)
-  confirmedById    String?
-  confirmedBy      User?                  @relation("ClassificationConfirmer", fields: [confirmedById], references: [id])
-  effectiveAt      DateTime
-  createdAt        DateTime               @default(now())
+  id                   String                  @id @default(cuid())
+  merchantId           String
+  merchant             Merchant                @relation(fields: [merchantId], references: [id])
+  dataDate             DateTime                @db.Date
+  businessSource       BusinessSource
+  dataAvailable        Boolean                 @default(true)
+  classification       MerchantClassification?
+  suggested            MerchantClassification?
+  reason               String
+  evidence             Json
+  ruleVersion          String
+  requiresConfirmation Boolean                 @default(false)
+  confirmedById        String?
+  confirmedBy          User?                   @relation("ClassificationConfirmer", fields: [confirmedById], references: [id])
+  effectiveAt          DateTime
+  createdAt            DateTime                @default(now())
 
-  @@unique([merchantId, dataDate])
+  @@unique([merchantId, dataDate, businessSource], map: "MerchantClassificationSnapshot_merchant_date_source_key")
   @@index([classification, dataDate])
+  @@index([businessSource, classification, dataDate])
 }
 
 model RuleHit {
@@ -382,6 +397,7 @@ model RuleHit {
   projectId      String?
   project        Project?       @relation(fields: [projectId], references: [id])
   dataDate       DateTime       @db.Date
+  businessSource BusinessSource
   status         RuleHitStatus  @default(ACTIVE)
   evidence       Json
   reason         String
@@ -390,7 +406,7 @@ model RuleHit {
   createdAt      DateTime       @default(now())
   resolvedAt     DateTime?
 
-  @@unique([code, entityType, entityId, dataDate, version])
+  @@unique([code, entityType, entityId, dataDate, version, businessSource], map: "RuleHit_entity_date_version_source_key")
   @@index([merchantId, dataDate])
   @@index([projectId, dataDate])
 }
@@ -400,6 +416,7 @@ model MerchantOverride {
   merchantId     String
   merchant       Merchant                @relation(fields: [merchantId], references: [id])
   type           MerchantOverrideType
+  businessSource BusinessSource?
   classification MerchantClassification?
   startDate      DateTime                @db.Date
   endDate        DateTime?               @db.Date
@@ -409,41 +426,43 @@ model MerchantOverride {
   createdAt      DateTime                @default(now())
 
   @@index([merchantId, startDate, endDate])
+  @@index([merchantId, businessSource, startDate, endDate])
 }
 
 model AuditLog {
-  id           String          @id @default(cuid())
-  actorId      String?
-  actor        User?           @relation(fields: [actorId], references: [id])
-  action       String
-  entityType   AuditEntityType
-  entityId     String
-  reason       String?
-  beforeValue  Json?
-  afterValue   Json?
-  metadata     Json?           @default("{}")
-  createdAt    DateTime        @default(now())
+  id          String          @id @default(cuid())
+  actorId     String?
+  actor       User?           @relation(fields: [actorId], references: [id])
+  action      String
+  entityType  AuditEntityType
+  entityId    String
+  reason      String?
+  beforeValue Json?
+  afterValue  Json?
+  metadata    Json?           @default("{}")
+  createdAt   DateTime        @default(now())
 
   @@index([entityType, entityId, createdAt])
   @@index([actorId, createdAt])
 }
 
 model Job {
-  id             String       @id @default(cuid())
-  type           JobType
-  status         JobStatus    @default(QUEUED)
-  sourceBatchId  String?
-  sourceBatch    UploadBatch? @relation(fields: [sourceBatchId], references: [id])
-  payload        Json
-  attempts       Int          @default(0)
-  maxAttempts    Int          @default(3)
-  lockedBy       String?
-  lockedAt       DateTime?
-  availableAt    DateTime     @default(now())
-  lastError      String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id            String       @id @default(cuid())
+  type          JobType
+  status        JobStatus    @default(QUEUED)
+  sourceBatchId String?
+  sourceBatch   UploadBatch? @relation(fields: [sourceBatchId], references: [id])
+  payload       Json
+  attempts      Int          @default(0)
+  maxAttempts   Int          @default(3)
+  lockedBy      String?
+  lockedAt      DateTime?
+  availableAt   DateTime     @default(now())
+  lastError     String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   @@unique([type, sourceBatchId])
   @@index([status, availableAt])
 }
+

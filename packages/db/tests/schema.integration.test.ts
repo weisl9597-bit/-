@@ -6,12 +6,29 @@ import { describe, expect, it } from 'vitest';
 const migrationPath = fileURLToPath(
   new URL('../prisma/migrations/20260821_initial_domain/migration.sql', import.meta.url),
 );
+const sourceMigrationPath = fileURLToPath(
+  new URL(
+    '../prisma/migrations/20260823_business_source_operations/migration.sql',
+    import.meta.url,
+  ),
+);
+const schemaPath = fileURLToPath(
+  new URL('../prisma/schema.prisma', import.meta.url),
+);
 const migrationSql = await readFile(migrationPath, 'utf8').catch(() => '');
+const sourceMigrationSql = await readFile(sourceMigrationPath, 'utf8').catch(() => '');
+const schema = await readFile(schemaPath, 'utf8');
+
+function modelSchema(name: string): string {
+  return schema.match(new RegExp(`model ${name} \\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
+}
 
 async function createDatabase(): Promise<PGlite> {
   expect(migrationSql, 'the production PostgreSQL migration must exist').not.toBe('');
+  expect(sourceMigrationSql, 'the source-aware migration must exist').not.toBe('');
   const database = new PGlite();
   await database.exec(migrationSql);
+  await database.exec(sourceMigrationSql);
   return database;
 }
 
@@ -29,6 +46,21 @@ async function seedProjectDependencies(database: PGlite): Promise<void> {
 }
 
 describe('production database migration', () => {
+  it('defines source-aware snapshots, classifications, rule hits and overrides', () => {
+    expect(schema).toContain('enum BusinessSource');
+    expect(modelSchema('ProjectSnapshot')).toMatch(/businessSource\s+BusinessSource/);
+    expect(modelSchema('ProjectSnapshot')).toMatch(/assignedAt\s+DateTime/);
+    expect(modelSchema('MetricSnapshot')).toMatch(/businessSource\s+BusinessSource/);
+    expect(modelSchema('MerchantClassificationSnapshot')).toMatch(
+      /dataAvailable\s+Boolean/,
+    );
+    expect(modelSchema('MerchantClassificationSnapshot')).toMatch(
+      /@@unique\(\[merchantId, dataDate, businessSource\]/,
+    );
+    expect(modelSchema('RuleHit')).toMatch(/businessSource\s+BusinessSource/);
+    expect(modelSchema('MerchantOverride')).toMatch(/businessSource\s+BusinessSource\?/);
+  });
+
   it('allows one source project to be assigned to multiple merchants but rejects the same assignment twice', async () => {
     const database = await createDatabase();
     await database.exec(`
@@ -61,9 +93,9 @@ describe('production database migration', () => {
 
     const insert = `
       INSERT INTO "ProjectSnapshot"
-        ("id", "dataDate", "projectId", "sourceProjectId", "merchantId", "organizationId", "uploadBatchId", "status", "raw")
+        ("id", "dataDate", "businessSource", "assignedAt", "projectId", "sourceProjectId", "merchantId", "organizationId", "uploadBatchId", "status", "raw")
       VALUES
-        ('snapshot-1', DATE '2026-08-21', 'project-1::merchant-1', 'project-1', 'merchant-1', 'city-1', 'batch-1', 'ACTIVE', '{}'::jsonb);
+        ('snapshot-1', DATE '2026-08-21', 'DESIGNBAO', NOW(), 'project-1::merchant-1', 'project-1', 'merchant-1', 'city-1', 'batch-1', 'ACTIVE', '{}'::jsonb);
     `;
     await database.exec(insert);
 
@@ -81,16 +113,16 @@ describe('production database migration', () => {
         ("id", "name", "groupId", "groupName", "unit", "direction", "source", "sortOrder", "updatedAt")
         VALUES ('project_open_rate', '开口率', 'dispatch_open', '分派-开口', 'RATE', 'POSITIVE', 'CALCULATED', 1, NOW());
       INSERT INTO "MetricSnapshot"
-        ("id", "metricId", "grain", "periodStart", "periodEnd", "organizationId", "dimensionKey", "value", "numerator", "denominator", "source", "sourceBatchId", "formulaVersion")
+        ("id", "metricId", "grain", "periodStart", "periodEnd", "organizationId", "dimensionKey", "businessSource", "value", "numerator", "denominator", "source", "sourceBatchId", "formulaVersion")
         VALUES
-          ('metric-1', 'project_open_rate', 'DAY', DATE '2026-08-21', DATE '2026-08-21', 'city-1', 'organization', 50, 1, 2, 'CALCULATED', 'batch-1', 'v1'),
-          ('metric-2', 'project_open_rate', 'DAY', DATE '2026-08-21', DATE '2026-08-21', 'city-1', 'organization', 75, 3, 4, 'CALCULATED', 'batch-2', 'v1');
+          ('metric-1', 'project_open_rate', 'DAY', DATE '2026-08-21', DATE '2026-08-21', 'city-1', 'organization', 'DESIGNBAO', 50, 1, 2, 'CALCULATED', 'batch-1', 'v1'),
+          ('metric-2', 'project_open_rate', 'DAY', DATE '2026-08-21', DATE '2026-08-21', 'city-1', 'organization', 'DESIGNBAO', 75, 3, 4, 'CALCULATED', 'batch-2', 'v1');
     `);
 
     await expect(database.exec(`
       INSERT INTO "MetricSnapshot"
-        ("id", "metricId", "grain", "periodStart", "periodEnd", "organizationId", "dimensionKey", "value", "numerator", "denominator", "source", "sourceBatchId", "formulaVersion")
-        VALUES ('metric-3', 'project_open_rate', 'DAY', DATE '2026-08-21', DATE '2026-08-21', 'city-1', 'organization', 80, 4, 5, 'CALCULATED', 'batch-2', 'v1');
+        ("id", "metricId", "grain", "periodStart", "periodEnd", "organizationId", "dimensionKey", "businessSource", "value", "numerator", "denominator", "source", "sourceBatchId", "formulaVersion")
+        VALUES ('metric-3', 'project_open_rate', 'DAY', DATE '2026-08-21', DATE '2026-08-21', 'city-1', 'organization', 'DESIGNBAO', 80, 4, 5, 'CALCULATED', 'batch-2', 'v1');
     `)).rejects.toThrow();
     await database.close();
   });
@@ -120,3 +152,4 @@ describe('production database migration', () => {
     await database.close();
   });
 });
+
