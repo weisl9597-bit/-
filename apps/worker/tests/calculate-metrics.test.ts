@@ -11,6 +11,7 @@ describe('metric worker job', () => {
         needsAnalyzed: true, hardInvite: false, coached: null, raw: { T: '是', U: '是' },
       }],
       syncDefinitions: async () => undefined,
+      deleteSnapshots: async () => undefined,
       insertSnapshots: async (snapshots) => snapshots.length,
     };
 

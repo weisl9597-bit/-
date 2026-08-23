@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 
 import { parseWorkbook } from '../src/parse-workbook';
 import { validateBatch } from '../src/validate-batch';
+import { metricCatalog } from '../../metrics/src/catalog';
+import { calculateMetric, rate, type MetricRow } from '../../metrics/src/calculate';
 
 const sourceFile = process.env.DESIGNBAO_SOURCE_XLSX;
 
@@ -12,6 +14,25 @@ function countBy<T>(items: T[], key: (item: T) => string): Record<string, number
     counts[value] = (counts[value] ?? 0) + 1;
     return counts;
   }, {});
+}
+
+function workbookDate(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return new Date(Date.UTC(1899, 11, 30) + Math.round(value * 86_400_000)).toISOString().slice(0, 10);
+  }
+  if (typeof value !== 'string') return null;
+  const match = /^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/.exec(value.trim());
+  return match?.[1] && match[2] && match[3]
+    ? `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`
+    : null;
+}
+
+function yes(value: unknown): boolean | null {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) return null;
+  if (['是', '有', '已完成', '完成', '1', 'true'].includes(normalized)) return true;
+  if (['否', '无', '未完成', '0', 'false'].includes(normalized)) return false;
+  return null;
 }
 
 describe.skipIf(!sourceFile)('supplied Designbao workbook', () => {
@@ -56,5 +77,57 @@ describe.skipIf(!sourceFile)('supplied Designbao workbook', () => {
         ).map((item) => item.sourceRow),
       }),
     );
+  });
+
+  it('matches the 40 cached August values in 总数据（设计宝）', async () => {
+    const parsed = await parseWorkbook(await readFile(sourceFile!));
+    const rows: MetricRow[] = parsed.projects
+      .filter((record) => String(record.category ?? '').trim() === '设计宝')
+      .map((record) => {
+        const sourceProjectId = String(record.projectId ?? '').trim() || `row:${record.sourceRow}`;
+        const merchantId = String(record.merchantId ?? '').trim();
+        return {
+        rowId: `row:${record.sourceRow}`,
+        assignmentId: `${sourceProjectId}::${merchantId || `row:${record.sourceRow}`}`,
+        sourceProjectId,
+        organizationIds: ['national'],
+        merchantId,
+        dataDate: workbookDate(record.raw.H) ?? '2026-08-23',
+        projectDate: workbookDate(record.raw.H),
+        assignmentDate: workbookDate(record.raw.I),
+        signedDate: workbookDate(record.raw.AL),
+        assignmentCount: Number(record.raw.J) || 0,
+        businessSource: 'DESIGNBAO',
+        followWithin30m: yes(record.raw.N),
+        needsAnalyzed: yes(record.raw.O),
+        hardInvite: yes(record.raw.P),
+        needsCoaching: null,
+        coached: null,
+        improved: null,
+        raw: record.raw,
+      };
+      });
+    const dates = Array.from(
+      { length: 31 },
+      (_, index) => `2026-08-${String(index + 1).padStart(2, '0')}`,
+    );
+    const actual = metricCatalog.map((definition) => {
+      const daily = dates.map((date) => calculateMetric(definition, rows, date));
+      const numerator = daily.reduce((sum, item) => sum + (item.numerator ?? 0), 0);
+      const denominator = daily.some((item) => item.denominator !== null)
+        ? daily.reduce((sum, item) => sum + (item.denominator ?? 0), 0)
+        : null;
+      return definition.unit === 'RATE'
+        ? rate(numerator, denominator ?? 0).value
+        : numerator;
+    });
+
+    expect(actual).toEqual([
+      561, 817, 319, 421, 56.8627, 51.53, 34, 6.0606,
+      39, 12.2257, 27, 8.4639, 6, 15.3846, 21, 18.8088,
+      77.7778, 0, 0, 0, 0, 0, 455, 220, 31, 55.6916,
+      26.9278, 3.7944, 122, 97, 128, 140, 21.7469, 24.9554,
+      164, 148, 96, 64, 0, 38.9549,
+    ]);
   });
 });

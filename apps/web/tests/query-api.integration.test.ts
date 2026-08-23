@@ -51,6 +51,7 @@ describe('organization-scoped query contracts', () => {
     await expect(getMetricCenterData({
       metricIds: ['project_open_rate'], grain: 'DAY',
       start: new Date('2026-08-21T00:00:00Z'), end: new Date('2026-08-21T23:59:59Z'),
+      source: 'DESIGNBAO', organizationId: 'city-1',
     }, cityScope, repository)).resolves.toMatchObject({
       selectedCount: 1,
       series: [{ metricId: 'project_open_rate', points: [{ value: 50, numerator: 1, denominator: 2 }] }],
@@ -58,6 +59,10 @@ describe('organization-scoped query contracts', () => {
     await expect(getMetricCenterData({
       metricIds: ['not-a-metric'], grain: 'DAY', start: new Date(), end: new Date(),
     }, cityScope, repository)).rejects.toThrow('UNKNOWN_METRIC:not-a-metric');
+    await expect(getMetricCenterData({
+      metricIds: ['project_open_rate'], grain: 'DAY', start: new Date(), end: new Date(),
+      organizationId: 'city-2', source: 'DESIGNBAO',
+    }, cityScope, repository)).rejects.toThrow('ORGANIZATION_OUT_OF_SCOPE');
   });
 
   it('uses cursor pagination and caps the page size at 200', async () => {
@@ -78,8 +83,14 @@ describe('organization-scoped query contracts', () => {
 
   it('validates URL filters before they reach a database query', () => {
     expect(parseMetricRequest(new URL(
-      'https://example.test/api/metrics?metricIds=project_open_rate,dispatch_project_count&grain=WEEK&start=2026-08-01&end=2026-08-21',
-    ))).toMatchObject({ metricIds: ['project_open_rate', 'dispatch_project_count'], grain: 'WEEK' });
+      'https://example.test/api/metrics?metricIds=project_open_rate,dispatch_project_count&grain=WEEK&start=2026-08-01&end=2026-08-21&source=XIAOHONGSHU&organizationId=city-1',
+    ))).toMatchObject({
+      metricIds: ['project_open_rate', 'dispatch_project_count'], grain: 'WEEK',
+      source: 'XIAOHONGSHU', organizationId: 'city-1',
+    });
+    expect(parseMetricRequest(new URL(
+      'https://example.test/api/metrics?metricIds=project_open_rate',
+    ))).toMatchObject({ source: 'DESIGNBAO' });
     expect(() => parseMetricRequest(new URL(
       'https://example.test/api/metrics?metricIds=project_open_rate&grain=YEAR',
     ))).toThrow();

@@ -9,6 +9,7 @@ export type MetricQuery = {
   end: Date;
   organizationIds: string[];
   merchantId?: string;
+  source: 'DESIGNBAO' | 'XIAOHONGSHU' | 'ALL';
 };
 
 export type StoredDailyMetric = {

@@ -18,35 +18,108 @@ function rawRecord(value: Prisma.JsonValue): Record<string, unknown> {
     : {};
 }
 
+function workbookDate(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return new Date(Date.UTC(1899, 11, 30) + Math.round(value * 86_400_000))
+      .toISOString().slice(0, 10);
+  }
+  if (typeof value !== 'string') return null;
+  const match = /^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/.exec(value.trim());
+  if (match?.[1] && match[2] && match[3]) {
+    return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+}
+
+function businessSource(value: unknown): MetricRow['businessSource'] {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized === '设计宝') return 'DESIGNBAO';
+  if (normalized === '小红书') return 'XIAOHONGSHU';
+  return 'OTHER';
+}
+
+function assignmentCount(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function text(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function yes(value: unknown): boolean | null {
+  const normalized = text(value).toLowerCase();
+  if (!normalized) return null;
+  if (['是', '有', '已完成', '完成', '1', 'true'].includes(normalized)) return true;
+  if (['否', '无', '未完成', '0', 'false'].includes(normalized)) return false;
+  return null;
+}
+
 export const prismaMetricSnapshotRepository: MetricSnapshotRepository = {
   async loadRows({ dataDate, batchId }): Promise<MetricRow[]> {
-    const snapshots = await db.projectSnapshot.findMany({
-      where: { uploadBatchId: batchId, dataDate: dateOnly(dataDate) },
-      include: {
-        project: { select: { assignedAt: true } },
-        organization: {
-          select: { id: true, parent: { select: { id: true, parent: { select: { id: true } } } } },
+    const [uploadRows, organizations, merchants] = await Promise.all([
+      db.uploadRow.findMany({
+        where: { batchId, sourceSheet: '项目明细2' },
+        select: { id: true, sourceRow: true, raw: true, canonical: true },
+        orderBy: { sourceRow: 'asc' },
+      }),
+      db.organization.findMany({
+        select: {
+          id: true,
+          name: true,
+          level: true,
+          parent: { select: { id: true, parent: { select: { id: true } } } },
         },
-      },
+      }),
+      db.merchant.findMany({ select: { id: true } }),
+    ]);
+    const nationalId = organizations.find(({ level }) => level === 'NATIONAL')?.id;
+    const cityByName = new Map(organizations
+      .filter(({ level }) => level === 'CITY')
+      .map((organization) => [organization.name.trim(), organization]));
+    const merchantIds = new Set(merchants.map(({ id }) => id));
+
+    return uploadRows.flatMap((uploadRow): MetricRow[] => {
+      const raw = rawRecord(uploadRow.raw);
+      const canonical = rawRecord(uploadRow.canonical ?? {});
+      const projectDate = workbookDate(raw.H)
+        ?? workbookDate(canonical.assignedAt)
+        ?? dataDate;
+      const city = cityByName.get(text(canonical.city || raw.A));
+      const organizationIds = [
+        city?.parent?.parent?.id ?? nationalId,
+        city?.parent?.id,
+        city?.id,
+      ].filter((id): id is string => Boolean(id));
+      if (organizationIds.length === 0) return [];
+      const rawMerchantId = text(canonical.merchantId || raw.B);
+      const merchantId = merchantIds.has(rawMerchantId) ? rawMerchantId : '';
+      const sourceProjectId = text(canonical.projectId || raw.D) || `row:${uploadRow.sourceRow}`;
+      return [{
+        rowId: uploadRow.id,
+        assignmentId: text(canonical.assignmentId) || `${sourceProjectId}::${merchantId || `row:${uploadRow.sourceRow}`}`,
+        sourceProjectId,
+        organizationIds,
+        merchantId,
+        dataDate: projectDate,
+        projectDate,
+        assignmentDate: workbookDate(raw.I) ?? projectDate,
+        signedDate: workbookDate(raw.AL),
+        assignmentCount: assignmentCount(raw.J),
+        businessSource: businessSource(raw.F),
+        followWithin30m: typeof canonical.followWithin30m === 'boolean'
+          ? canonical.followWithin30m : yes(raw.N),
+        needsAnalyzed: typeof canonical.needsAnalyzed === 'boolean'
+          ? canonical.needsAnalyzed : yes(raw.O),
+        hardInvite: typeof canonical.hardInvite === 'boolean'
+          ? canonical.hardInvite : yes(raw.P),
+        needsCoaching: typeof canonical.needsCoaching === 'boolean' ? canonical.needsCoaching : null,
+        coached: typeof canonical.coached === 'boolean' ? canonical.coached : null,
+        improved: typeof canonical.improved === 'boolean' ? canonical.improved : null,
+        raw,
+      }];
     });
-    return snapshots.map((snapshot) => ({
-      assignmentId: snapshot.projectId,
-      sourceProjectId: snapshot.sourceProjectId,
-      organizationIds: [
-        snapshot.organization.parent?.parent?.id,
-        snapshot.organization.parent?.id,
-        snapshot.organization.id,
-      ].filter((id): id is string => Boolean(id)),
-      merchantId: snapshot.merchantId,
-      dataDate: snapshot.project.assignedAt.toISOString().slice(0, 10),
-      followWithin30m: snapshot.followWithin30m,
-      needsAnalyzed: snapshot.needsAnalyzed,
-      hardInvite: snapshot.hardInvite,
-      needsCoaching: snapshot.needsCoaching,
-      coached: snapshot.coached,
-      improved: snapshot.improved,
-      raw: rawRecord(snapshot.raw),
-    }));
   },
 
   async syncDefinitions(definitions: readonly MetricDefinition[]) {
@@ -65,6 +138,10 @@ export const prismaMetricSnapshotRepository: MetricSnapshotRepository = {
         enabled: true,
       },
     })));
+  },
+
+  async deleteSnapshots(batchId) {
+    await db.metricSnapshot.deleteMany({ where: { sourceBatchId: batchId } });
   },
 
   async insertSnapshots(snapshots: MetricSnapshotInput[]) {

@@ -68,16 +68,6 @@ export async function processImportBatch(
 ): Promise<ImportBatchResult> {
   const batch = await dependencies.repository.getBatch(batchId);
   if (!batch) throw new Error(`Import batch not found: ${batchId}`);
-  if (batch.status === 'SUCCEEDED') {
-    return {
-      batchId,
-      status: 'SUCCEEDED',
-      acceptedRows: batch.acceptedRows,
-      errorCount: batch.errorCount,
-      warningCount: batch.warningCount,
-    };
-  }
-
   await dependencies.repository.markProcessing(batchId);
   const buffer = await dependencies.storage.getObject(batch.objectKey);
   if (!buffer) throw new Error(`Import object not found: ${batch.objectKey}`);

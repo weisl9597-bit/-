@@ -13,6 +13,8 @@ export type MetricCenterQuery = {
   start: Date;
   end: Date;
   merchantId?: string;
+  organizationId?: string;
+  source?: 'DESIGNBAO' | 'XIAOHONGSHU' | 'ALL';
 };
 
 function decimal(value: { toNumber(): number } | null): number | null {
@@ -52,6 +54,9 @@ export const prismaMetricQueryRepository: MetricQueryRepository = {
         periodStart: { gte: query.start, lte: query.end },
         organizationId: organizationIds.length > 0 ? { in: organizationIds } : undefined,
         merchantId: query.merchantId,
+        dimensionKey: query.source === 'ALL'
+          ? undefined
+          : { startsWith: `source:${query.source}|` },
         sourceBatch: { status: 'SUCCEEDED' },
       },
       include: { sourceBatch: { select: { createdAt: true } } },
@@ -80,9 +85,19 @@ export async function getMetricCenterData(
   scope: OrganizationScope,
   repository: MetricQueryRepository = prismaMetricQueryRepository,
 ) {
+  if (
+    query.organizationId
+    && !scope.unrestricted
+    && !scope.organizationIds.includes(query.organizationId)
+  ) {
+    throw new Error('ORGANIZATION_OUT_OF_SCOPE');
+  }
   const series = await queryMetricSeries({
     ...query,
-    organizationIds: scope.unrestricted ? [] : scope.organizationIds,
+    source: query.source ?? 'DESIGNBAO',
+    organizationIds: query.organizationId
+      ? [query.organizationId]
+      : scope.unrestricted ? [] : scope.organizationIds,
   }, repository);
   return {
     catalog: metricCatalog,

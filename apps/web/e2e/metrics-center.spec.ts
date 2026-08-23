@@ -11,6 +11,22 @@ test('all 40 metrics can be selected and switch to the matrix', async ({ page })
   await expectNoPageOverflow(page);
 });
 
+test('defaults to Designbao and supports region, city and merchant cascading filters', async ({ page }) => {
+  await mockSession(page);
+  await mockMetrics(page);
+  await page.goto('/metrics');
+
+  await expect(page.getByLabel('业务来源')).toHaveValue('DESIGNBAO');
+  await expect(page.getByLabel('大区')).toHaveValue('region-1');
+  await expect(page.getByLabel('城市')).toHaveValue('city-1');
+  await expect(page.getByLabel('商家')).toBeEnabled();
+
+  await page.getByLabel('商家').selectOption('M1');
+  await page.getByLabel('业务来源').selectOption('ALL');
+  await expect.poll(() => new URL(page.url()).searchParams.get('merchantId')).toBe('M1');
+  await expect.poll(() => new URL(page.url()).searchParams.get('source')).toBe('ALL');
+});
+
 test('the workbench fits both accepted desktop viewports', async ({ page }) => {
   await mockSession(page);
   await mockMetrics(page);
@@ -20,4 +36,3 @@ test('the workbench fits both accepted desktop viewports', async ({ page }) => {
     await expectNoPageOverflow(page);
   }
 });
-

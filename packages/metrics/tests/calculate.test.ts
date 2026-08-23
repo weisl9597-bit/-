@@ -49,4 +49,23 @@ describe('metric calculation', () => {
       value: 33.3333, numerator: 1, denominator: 3,
     });
   });
+
+  it('matches the workbook date axes, count columns, and exact business fields', () => {
+    const workbookRows = [{
+      assignmentId: 'P10::M1', sourceProjectId: 'P10', organizationIds: ['city-1'],
+      merchantId: 'M1', dataDate: '2026-08-01', projectDate: '2026-08-01',
+      assignmentDate: '2026-08-02', signedDate: '2026-08-03', assignmentCount: 2,
+      businessSource: 'DESIGNBAO', followWithin30m: true, needsAnalyzed: true,
+      hardInvite: false, coached: true,
+      raw: { U: '是', T: '是', AB: '是', AH: '是', AI: '是', AJ: '已收定', V: '还不错', Y: '已辅导' },
+    }] as MetricRow[];
+
+    expect(calculateMetric(definition('dispatch_project_count'), workbookRows, '2026-08-01').value).toBe(1);
+    expect(calculateMetric(definition('dispatch_assignment_count'), workbookRows, '2026-08-01').value).toBe(2);
+    expect(calculateMetric(definition('group_open_count'), workbookRows, '2026-08-01').value).toBe(0);
+    expect(calculateMetric(definition('group_open_count'), workbookRows, '2026-08-02').value).toBe(1);
+    expect(calculateMetric(definition('signed_project_count'), workbookRows, '2026-08-03').value).toBe(1);
+    expect(calculateMetric(definition('exit_group_project_count'), workbookRows, '2026-08-01').value).toBe(1);
+    expect(calculateMetric(definition('quality_good_count'), workbookRows, '2026-08-02').value).toBe(1);
+  });
 });

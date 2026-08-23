@@ -22,6 +22,15 @@ export async function mockDashboard(page: Page) {
 }
 
 export async function mockMetrics(page: Page) {
+  await page.route('**/api/metrics/filters', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      regions: [{ id: 'region-1', name: '华南大区' }],
+      cities: [{ id: 'city-1', name: '广州市', parentId: 'region-1' }],
+      merchants: [{ id: 'M1', name: '示例装饰', organizationId: 'city-1' }],
+    }),
+  }));
   await page.route('**/api/metrics?*', async (route) => {
     const ids = new URL(route.request().url()).searchParams.get('metricIds')?.split(',') ?? [];
     await route.fulfill({
@@ -42,4 +51,3 @@ export async function expectNoPageOverflow(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   if (overflow > 1) throw new Error(`页面发生 ${overflow}px 横向溢出`);
 }
-

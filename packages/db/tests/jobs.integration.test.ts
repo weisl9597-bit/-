@@ -7,6 +7,7 @@ import {
   claimNextJobWithDatabase,
   completeJobWithDatabase,
   failJobWithDatabase,
+  requeueOutdatedImportJobsWithDatabase,
   type JobDatabase,
   type JobTransaction,
 } from '../src/jobs';
@@ -173,6 +174,81 @@ describe('job claiming', () => {
 });
 
 describe('job completion handling', () => {
+  it('requeues the source import when the metric formula version changes', async () => {
+    const database = new PGlite();
+    await database.exec(migrationSql);
+    await database.exec(`
+      INSERT INTO "Organization" ("id", "name", "level", "path", "updatedAt")
+      VALUES ('national', '全国', 'NATIONAL', '/china', NOW());
+      INSERT INTO "UploadBatch"
+        ("id", "fileName", "fileHash", "dataDate", "status", "updatedAt")
+      VALUES
+        ('batch-old-formula', 'designbao.xlsx', 'hash-old-formula', DATE '2026-08-23', 'SUCCEEDED', NOW());
+      INSERT INTO "Job"
+        ("id", "type", "status", "sourceBatchId", "payload", "attempts", "updatedAt")
+      VALUES
+        ('import-old-formula', 'IMPORT', 'SUCCEEDED', 'batch-old-formula', '{"batchId":"batch-old-formula","dataDate":"2026-08-23"}'::jsonb, 1, NOW()),
+        ('metrics-old-formula', 'METRICS', 'SUCCEEDED', 'batch-old-formula', '{"batchId":"batch-old-formula","dataDate":"2026-08-23"}'::jsonb, 1, NOW());
+    `);
+    const adapter: JobDatabase = {
+      transaction(operation) {
+        return database.transaction(async (tx) => operation({
+          async query<T>(sql: string, parameters: unknown[]): Promise<T[]> {
+            const result = await tx.query<T>(sql, parameters);
+            return result.rows;
+          },
+          async execute(sql: string, parameters: unknown[]): Promise<void> {
+            await tx.query(sql, parameters);
+          },
+        }));
+      },
+    };
+
+    await expect(requeueOutdatedImportJobsWithDatabase('v2', adapter)).resolves.toBe(1);
+    const jobs = await database.query<{ status: string; attempts: number }>(
+      'SELECT "status", "attempts" FROM "Job" WHERE "id" = $1',
+      ['import-old-formula'],
+    );
+    expect(jobs.rows[0]).toEqual({ status: 'QUEUED', attempts: 0 });
+    await database.close();
+  });
+
+  it('requeues metrics after a repaired import completes', async () => {
+    const database = new PGlite();
+    await database.exec(migrationSql);
+    await database.exec(`
+      INSERT INTO "UploadBatch"
+        ("id", "fileName", "fileHash", "dataDate", "status", "updatedAt")
+      VALUES ('batch-reimport', 'designbao.xlsx', 'hash-reimport', DATE '2026-08-23', 'SUCCEEDED', NOW());
+      INSERT INTO "Job"
+        ("id", "type", "status", "sourceBatchId", "payload", "attempts", "updatedAt")
+      VALUES
+        ('import-reimport', 'IMPORT', 'RUNNING', 'batch-reimport', '{"batchId":"batch-reimport"}'::jsonb, 2, NOW()),
+        ('metrics-reimport', 'METRICS', 'SUCCEEDED', 'batch-reimport', '{"batchId":"batch-reimport","dataDate":"2026-08-23"}'::jsonb, 1, NOW());
+    `);
+    const adapter: JobDatabase = {
+      transaction(operation) {
+        return database.transaction(async (tx) => operation({
+          async query<T>(sql: string, parameters: unknown[]): Promise<T[]> {
+            const result = await tx.query<T>(sql, parameters);
+            return result.rows;
+          },
+          async execute(sql: string, parameters: unknown[]): Promise<void> {
+            await tx.query(sql, parameters);
+          },
+        }));
+      },
+    };
+
+    await completeJobWithDatabase('import-reimport', adapter, new Date('2026-08-23T12:00:00Z'));
+    const metrics = await database.query<{ status: string; attempts: number }>(
+      'SELECT "status", "attempts" FROM "Job" WHERE "id" = $1',
+      ['metrics-reimport'],
+    );
+    expect(metrics.rows[0]).toEqual({ status: 'QUEUED', attempts: 0 });
+    await database.close();
+  });
+
   it('requeues rules that ran before a recovered metrics job completed', async () => {
     const database = new PGlite();
     await database.exec(migrationSql);
@@ -329,4 +405,3 @@ describe('job failure handling', () => {
     await database.close();
   });
 });
-

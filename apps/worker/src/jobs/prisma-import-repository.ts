@@ -138,6 +138,7 @@ export function createPrismaImportRepository(database: typeof db): ImportBatchRe
         plan.projects.map((project) => [project.id, project.organizationId]),
       );
 
+      await transaction.projectSnapshot.deleteMany({ where: { uploadBatchId: input.batchId } });
       await transaction.projectSnapshot.createMany({
         data: input.records.map((record) => ({
           dataDate: dateOnly(input.dataDate),
@@ -188,4 +189,3 @@ export function createPrismaImportRepository(database: typeof db): ImportBatchRe
 }
 
 export const prismaImportRepository = createPrismaImportRepository(db);
-

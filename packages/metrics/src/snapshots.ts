@@ -20,6 +20,7 @@ export type MetricSnapshotInput = {
 export type MetricSnapshotRepository = {
   loadRows(input: { dataDate: string; batchId: string }): Promise<MetricRow[]>;
   syncDefinitions(definitions: readonly MetricDefinition[]): Promise<void>;
+  deleteSnapshots(batchId: string): Promise<void>;
   insertSnapshots(snapshots: MetricSnapshotInput[]): Promise<number>;
 };
 
@@ -42,14 +43,16 @@ export async function buildMetricSnapshots(
 ): Promise<number> {
   const rows = await repository.loadRows({ dataDate, batchId });
   await repository.syncDefinitions(allMetricDefinitions);
+  await repository.deleteSnapshots(batchId);
   const groups = new Map<string, MetricRow[]>();
 
   for (const row of rows) {
+    const source = row.businessSource ?? 'OTHER';
     for (const organizationId of row.organizationIds) {
-      addScope(groups, `${row.dataDate}|organization:${organizationId}`, row);
+      addScope(groups, `${source}|organization:${organizationId}`, row);
     }
     const cityId = row.organizationIds.at(-1);
-    if (cityId) addScope(groups, `${row.dataDate}|merchant:${cityId}:${row.merchantId}`, row);
+    if (cityId && row.merchantId) addScope(groups, `${source}|merchant:${cityId}:${row.merchantId}`, row);
   }
 
   let snapshots: MetricSnapshotInput[] = [];
@@ -60,28 +63,41 @@ export async function buildMetricSnapshots(
     snapshots = [];
   };
   for (const [key, scopedRows] of groups) {
-    const [period = dataDate, scopeKey = ''] = key.split('|');
+    const [businessSource = 'OTHER', scopeKey = ''] = key.split('|');
     const [scope, organizationId = '', merchantId] = scopeKey.split(':');
-    for (const definition of allMetricDefinitions) {
-      const result = calculateMetric(definition, scopedRows);
-      snapshots.push({
-        metricId: definition.id,
-        grain: 'DAY',
-        periodStart: period,
-        periodEnd: period,
-        organizationId,
-        merchantId: scope === 'merchant' ? merchantId ?? null : null,
-        dimensionKey: scope === 'merchant' ? `merchant:${merchantId}` : 'organization',
-        ...result,
-        source: 'CALCULATED',
-        sourceBatchId: batchId,
-        formulaVersion: definition.formulaVersion,
-      });
-      if (snapshots.length >= snapshotBatchSize) await flushSnapshots();
+    const periods = new Set<string>();
+    for (const row of scopedRows) {
+      for (const period of [
+        row.projectDate === undefined ? row.dataDate : row.projectDate,
+        row.assignmentDate === undefined ? row.dataDate : row.assignmentDate,
+        row.signedDate,
+      ]) {
+        if (period) periods.add(period);
+      }
+    }
+    for (const period of periods) {
+      for (const definition of allMetricDefinitions) {
+        const result = calculateMetric(definition, scopedRows, period);
+        snapshots.push({
+          metricId: definition.id,
+          grain: 'DAY',
+          periodStart: period,
+          periodEnd: period,
+          organizationId,
+          merchantId: scope === 'merchant' ? merchantId ?? null : null,
+          dimensionKey: scope === 'merchant'
+            ? `source:${businessSource}|merchant:${merchantId}`
+            : `source:${businessSource}|organization`,
+          ...result,
+          source: 'CALCULATED',
+          sourceBatchId: batchId,
+          formulaVersion: definition.formulaVersion,
+        });
+        if (snapshots.length >= snapshotBatchSize) await flushSnapshots();
+      }
     }
   }
 
   await flushSnapshots();
   return snapshotCount;
 }
-

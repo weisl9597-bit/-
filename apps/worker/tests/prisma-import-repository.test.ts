@@ -32,6 +32,7 @@ describe('Prisma import repository', () => {
   it('uses three bulk writes and assigns snapshots to the correct regional city', async () => {
     const rawQueries: Prisma.Sql[] = [];
     let snapshots: Array<{ projectId: string; organizationId: string }> = [];
+    let snapshotsDeleted = false;
     let batchStatus: string | undefined;
     const transaction = {
       uploadRow: {
@@ -47,6 +48,9 @@ describe('Prisma import repository', () => {
         return 1;
       },
       projectSnapshot: {
+        async deleteMany() {
+          snapshotsDeleted = true;
+        },
         async createMany(input: { data: Array<{ projectId: string; organizationId: string }> }) {
           snapshots = input.data;
         },
@@ -85,9 +89,9 @@ describe('Prisma import repository', () => {
     });
 
     expect(rawQueries).toHaveLength(3);
+    expect(snapshotsDeleted).toBe(true);
     expect(snapshots).toHaveLength(2);
     expect(new Set(snapshots.map((item) => item.organizationId)).size).toBe(2);
     expect(batchStatus).toBe('SUCCEEDED');
   });
 });
-

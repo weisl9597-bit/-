@@ -4,11 +4,16 @@ import JSZip from 'jszip';
 import { describe, expect, it } from 'vitest';
 
 import { sha256 } from '../src/hash-file';
+import { projectColumns } from '../src/mappings';
 import { expandMergedCellValues, parseWorkbook } from '../src/parse-workbook';
 
 const fixtures = resolve('packages/test-fixtures/excel');
 
 describe('parseWorkbook', () => {
+  it('uses the workbook summary date column 分派时间1 before the assignment detail date', () => {
+    expect(projectColumns.assignedAt[0]).toBe('分派时间1');
+  });
+
   it('reads only 项目明细2 and 工作表3 using the real two-level headers', async () => {
     const buffer = await readFile(resolve(fixtures, 'designbao-valid.xlsx'));
 

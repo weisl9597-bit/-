@@ -9,17 +9,22 @@ describe('metric snapshots', () => {
     const rows: MetricRow[] = [{
       assignmentId: 'P1::M1', sourceProjectId: 'P1', organizationIds: ['national', 'region-1', 'city-1'],
       merchantId: 'M1', dataDate: '2026-08-21', followWithin30m: true,
+      businessSource: 'DESIGNBAO', projectDate: '2026-08-21', assignmentDate: '2026-08-21',
+      signedDate: null, assignmentCount: 1,
       needsAnalyzed: true, hardInvite: false, coached: null,
       raw: { T: '是', U: '是', X: '还不错' },
     }, {
       assignmentId: 'OLD::M1', sourceProjectId: 'OLD', organizationIds: ['national', 'region-1', 'city-1'],
       merchantId: 'M1', dataDate: '2026-08-20', followWithin30m: true,
+      businessSource: 'XIAOHONGSHU', projectDate: '2026-08-20', assignmentDate: '2026-08-20',
+      signedDate: null, assignmentCount: 1,
       needsAnalyzed: true, hardInvite: false, coached: null,
       raw: { T: '是', U: '是', X: '还不错' },
     }];
     const repository: MetricSnapshotRepository = {
       loadRows: async () => rows,
       syncDefinitions: async () => undefined,
+      deleteSnapshots: async () => undefined,
       insertSnapshots: async (snapshots) => { saved.push(...snapshots); return snapshots.length; },
     };
 
@@ -29,11 +34,16 @@ describe('metric snapshots', () => {
     expect(saved).toContainEqual(expect.objectContaining({
       metricId: 'merchant_sop_compliance_rate', grain: 'DAY', periodStart: '2026-08-21',
       organizationId: 'city-1', merchantId: 'M1', numerator: 1, denominator: 1, value: 100,
-      sourceBatchId: 'batch-1', formulaVersion: 'v1',
+      sourceBatchId: 'batch-1', formulaVersion: 'v2',
+      dimensionKey: 'source:DESIGNBAO|merchant:M1',
     }));
     expect(saved).toContainEqual(expect.objectContaining({
       metricId: 'dispatch_project_count', organizationId: 'national', merchantId: null,
-      value: 1,
+      value: 1, dimensionKey: 'source:DESIGNBAO|organization',
+    }));
+    expect(saved).toContainEqual(expect.objectContaining({
+      metricId: 'dispatch_project_count', organizationId: 'national',
+      value: 1, dimensionKey: 'source:XIAOHONGSHU|organization',
     }));
   });
 
@@ -45,6 +55,11 @@ describe('metric snapshots', () => {
       organizationIds: ['national', 'region-1', 'city-1'],
       merchantId: `M${index}`,
       dataDate: `2026-08-${String(18 + index).padStart(2, '0')}`,
+      businessSource: 'DESIGNBAO' as const,
+      projectDate: `2026-08-${String(18 + index).padStart(2, '0')}`,
+      assignmentDate: `2026-08-${String(18 + index).padStart(2, '0')}`,
+      signedDate: null,
+      assignmentCount: 1,
       followWithin30m: true,
       needsAnalyzed: true,
       hardInvite: false,
@@ -54,6 +69,7 @@ describe('metric snapshots', () => {
     const repository: MetricSnapshotRepository = {
       loadRows: async () => rows,
       syncDefinitions: async () => undefined,
+      deleteSnapshots: async () => undefined,
       insertSnapshots: async (snapshots) => {
         batchSizes.push(snapshots.length);
         return snapshots.length;
@@ -67,4 +83,3 @@ describe('metric snapshots', () => {
     expect(Math.max(...batchSizes)).toBeLessThanOrEqual(500);
   });
 });
-

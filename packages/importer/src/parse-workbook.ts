@@ -48,6 +48,7 @@ type XmlObject = { [key: string]: XmlValue | undefined };
 
 type SheetData = {
   rows: Map<number, Map<number, WorkbookCellValue>>;
+  originalRows: Map<number, Map<number, WorkbookCellValue>>;
   maxColumn: number;
 };
 
@@ -242,11 +243,14 @@ async function readSheet(
     }
     rows.set(rowNumber, values);
   }
+  const originalRows = new Map(
+    [...rows].map(([rowNumber, values]) => [rowNumber, new Map(values)]),
+  );
   const mergeReferences = asArray(object(worksheet.mergeCells).mergeCell)
     .map((mergeCell) => text(object(mergeCell)['@_ref']))
     .filter(Boolean);
   expandMergedCellValues(rows, mergeReferences);
-  return { rows, maxColumn };
+  return { rows, originalRows, maxColumn };
 }
 
 function findColumns<T extends Record<string, readonly string[]>>(
@@ -309,8 +313,9 @@ export async function parseWorkbook(buffer: Buffer): Promise<ParsedWorkbook> {
   const projects: ParsedProjectRow[] = [];
   for (const [sourceRow, row] of projectSheet.rows) {
     if (sourceRow < 4) continue;
+    const originalRow = projectSheet.originalRows.get(sourceRow) ?? new Map();
     const raw = Object.fromEntries(
-      [...row.entries()].map(([column, value]) => [columnName(column), value]),
+      [...originalRow.entries()].map(([column, value]) => [columnName(column), value]),
     );
     if (Object.values(raw).every((value) => value === null || value === '')) continue;
     projects.push({

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { claimNextJob, completeJob, failJob } from '@designbao/db/jobs';
+import { claimNextJob, completeJob, failJob, requeueOutdatedImportJobs } from '@designbao/db/jobs';
+import { allMetricDefinitions } from '@designbao/metrics/catalog';
 import { createConfiguredObjectStore } from '@designbao/storage/s3';
 import { formatJobLog } from './job-log';
 import { runClaimedJob } from './job-runner';
@@ -44,6 +45,12 @@ async function runOnce(): Promise<void> {
   }
 }
 
-void runOnce();
-setInterval(() => void runOnce(), 1_000);
+async function startWorker(): Promise<void> {
+  const formulaVersion = allMetricDefinitions[0]?.formulaVersion ?? 'v2';
+  const requeued = await requeueOutdatedImportJobs(formulaVersion);
+  if (requeued > 0) console.info(`event: imports_requeued count: ${requeued} formulaVersion: ${formulaVersion}`);
+  await runOnce();
+  setInterval(() => void runOnce(), 1_000);
+}
 
+void startWorker();

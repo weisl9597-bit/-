@@ -34,6 +34,9 @@ export function parseMetricRequest(url: URL): MetricCenterQuery {
     start: date.parse(url.searchParams.get('start') ?? defaultStartDate.toISOString().slice(0, 10)),
     end: date.parse(url.searchParams.get('end') ?? defaultEnd),
     merchantId: url.searchParams.get('merchantId') || undefined,
+    organizationId: url.searchParams.get('organizationId') || undefined,
+    source: z.enum(['DESIGNBAO', 'XIAOHONGSHU', 'ALL'])
+      .parse(url.searchParams.get('source') ?? 'DESIGNBAO'),
   };
 }
 

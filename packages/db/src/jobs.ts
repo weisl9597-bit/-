@@ -121,6 +121,98 @@ export function claimNextJob(workerId: string): Promise<ClaimedJob | null> {
   return claimNextJobWithDatabase(workerId, prismaJobDatabase, new Date());
 }
 
+export async function requeueOutdatedMetricJobsWithDatabase(
+  formulaVersion: string,
+  database: JobDatabase,
+  now = new Date(),
+): Promise<number> {
+  return database.transaction(async (transaction) => {
+    const jobs = await transaction.query<{ id: string }>(
+      `
+        UPDATE "Job" AS job
+        SET "status" = 'QUEUED',
+            "attempts" = 0,
+            "availableAt" = $1,
+            "lockedBy" = NULL,
+            "lockedAt" = NULL,
+            "lastError" = NULL,
+            "updatedAt" = $1
+        WHERE job."type" = 'METRICS'
+          AND job."status" IN ('SUCCEEDED', 'FAILED')
+          AND EXISTS (
+            SELECT 1
+            FROM "UploadBatch" AS batch
+            WHERE batch."id" = job."sourceBatchId"
+              AND batch."status" = 'SUCCEEDED'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM "MetricSnapshot" AS snapshot
+            WHERE snapshot."sourceBatchId" = job."sourceBatchId"
+              AND snapshot."formulaVersion" = $2
+          )
+        RETURNING job."id"
+      `,
+      [now, formulaVersion],
+    );
+    return jobs.length;
+  });
+}
+
+export function requeueOutdatedMetricJobs(formulaVersion: string): Promise<number> {
+  return requeueOutdatedMetricJobsWithDatabase(
+    formulaVersion,
+    prismaJobDatabase,
+    new Date(),
+  );
+}
+
+export async function requeueOutdatedImportJobsWithDatabase(
+  formulaVersion: string,
+  database: JobDatabase,
+  now = new Date(),
+): Promise<number> {
+  return database.transaction(async (transaction) => {
+    const jobs = await transaction.query<{ id: string }>(
+      `
+        UPDATE "Job" AS job
+        SET "status" = 'QUEUED',
+            "attempts" = 0,
+            "availableAt" = $1,
+            "lockedBy" = NULL,
+            "lockedAt" = NULL,
+            "lastError" = NULL,
+            "updatedAt" = $1
+        WHERE job."type" = 'IMPORT'
+          AND job."status" IN ('SUCCEEDED', 'FAILED')
+          AND EXISTS (
+            SELECT 1
+            FROM "UploadBatch" AS batch
+            WHERE batch."id" = job."sourceBatchId"
+              AND batch."status" = 'SUCCEEDED'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM "MetricSnapshot" AS snapshot
+            WHERE snapshot."sourceBatchId" = job."sourceBatchId"
+              AND snapshot."formulaVersion" = $2
+          )
+        RETURNING job."id"
+      `,
+      [now, formulaVersion],
+    );
+    return jobs.length;
+  });
+}
+
+export function requeueOutdatedImportJobs(formulaVersion: string): Promise<number> {
+  return requeueOutdatedImportJobsWithDatabase(
+    formulaVersion,
+    prismaJobDatabase,
+    new Date(),
+  );
+}
+
 export type FailJobResult = {
   exhausted: boolean;
   batchId: string | null;
@@ -173,6 +265,25 @@ export async function completeJobWithDatabase(
       `,
       [now, jobId],
     );
+
+    if (job.type === 'IMPORT' && job.sourceBatchId) {
+      await transaction.execute(
+        `
+          UPDATE "Job"
+          SET "status" = 'QUEUED',
+              "attempts" = 0,
+              "availableAt" = $1,
+              "lockedBy" = NULL,
+              "lockedAt" = NULL,
+              "lastError" = NULL,
+              "updatedAt" = $1
+          WHERE "type" = 'METRICS'
+            AND "sourceBatchId" = $2
+            AND "status" IN ('SUCCEEDED', 'FAILED')
+        `,
+        [now, job.sourceBatchId],
+      );
+    }
 
     if (job.type === 'METRICS' && job.sourceBatchId) {
       await transaction.execute(
@@ -280,4 +391,3 @@ export async function failJobWithDatabase(
 export function failJob(jobId: string, error: unknown): Promise<FailJobResult> {
   return failJobWithDatabase(jobId, error, prismaJobDatabase, new Date());
 }
-
