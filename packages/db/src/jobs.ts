@@ -53,7 +53,7 @@ export async function claimNextJobWithDatabase(
         FOR UPDATE SKIP LOCKED
         LIMIT 1
       `,
-      [now.toISOString()],
+      [now],
     );
     const candidate = candidates[0];
     if (!candidate) return null;
@@ -71,7 +71,7 @@ export async function claimNextJobWithDatabase(
           "id", "type", "status", "sourceBatchId", "payload",
           "attempts", "maxAttempts", "lockedBy", "lockedAt"
       `,
-      [workerId, now.toISOString(), candidate.id],
+      [workerId, now, candidate.id],
     );
     return claimed[0] ?? null;
   });

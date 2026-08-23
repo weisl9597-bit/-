@@ -17,6 +17,26 @@ const migrationSql = await readFile(
 );
 
 describe('job claiming', () => {
+  it('passes the availability cutoff as a Date for PostgreSQL timestamptz comparison', async () => {
+    const now = new Date('2026-08-21T12:00:00Z');
+    let receivedParameters: unknown[] | undefined;
+    const database: JobDatabase = {
+      transaction(operation) {
+        return operation({
+          async query<T>(_sql: string, parameters: unknown[]): Promise<T[]> {
+            receivedParameters = parameters;
+            return [];
+          },
+          async execute(): Promise<void> {},
+        });
+      },
+    };
+
+    await claimNextJobWithDatabase('worker-1', database, now);
+
+    expect(receivedParameters?.[0]).toBe(now);
+  });
+
   it('claims one available job and marks it running for the worker', async () => {
     const database = new PGlite();
     await database.exec(migrationSql);
