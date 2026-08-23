@@ -7,6 +7,7 @@ import type {
   UploadRecord,
   UploadStatusDependencies,
 } from './upload-handler';
+import { retryRecoverableUpload } from './retry-upload';
 
 function dateOnly(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
@@ -28,7 +29,7 @@ function mapBatch(batch: {
   acceptedRows: number;
   errorCount: number;
   warningCount: number;
-}): UploadRecord {
+}, issues: UploadRecord['issues'] = []): UploadRecord {
   return {
     id: batch.id,
     fileName: batch.fileName,
@@ -41,6 +42,8 @@ function mapBatch(batch: {
     acceptedRows: batch.acceptedRows,
     errorCount: batch.errorCount,
     warningCount: batch.warningCount,
+    skippedRows: Math.max(batch.totalRows - batch.acceptedRows, 0),
+    issues,
   };
 }
 
@@ -83,6 +86,45 @@ export const prismaUploadDependencies: UploadHandlerDependencies = {
     });
     return batch ? mapBatch(batch) : null;
   },
+  async retryDuplicate(batch) {
+    return retryRecoverableUpload(batch, {
+      async findImportJob(batchId) {
+        return db.job.findFirst({
+          where: { type: 'IMPORT', sourceBatchId: batchId },
+          select: { id: true, status: true },
+        });
+      },
+      async reset(batchId, jobId) {
+        await db.$transaction([
+          db.uploadBatch.update({
+            where: { id: batchId },
+            data: {
+              status: 'QUEUED',
+              totalRows: 0,
+              acceptedRows: 0,
+              warningCount: 0,
+              errorCount: 0,
+              failureStage: null,
+              failureMessage: null,
+              startedAt: null,
+              finishedAt: null,
+            },
+          }),
+          db.job.update({
+            where: { id: jobId },
+            data: {
+              status: 'QUEUED',
+              attempts: 0,
+              availableAt: new Date(),
+              lockedBy: null,
+              lockedAt: null,
+              lastError: null,
+            },
+          }),
+        ]);
+      },
+    });
+  },
   async putObject(objectKey, bytes, contentType) {
     await storage().putObject(objectKey, bytes, contentType);
   },
@@ -92,7 +134,23 @@ export const prismaUploadDependencies: UploadHandlerDependencies = {
 export const prismaUploadStatusDependencies: UploadStatusDependencies = {
   authorize: authenticateRequest,
   async findById(batchId) {
-    const batch = await db.uploadBatch.findUnique({ where: { id: batchId } });
-    return batch ? mapBatch(batch) : null;
+    const batch = await db.uploadBatch.findUnique({
+      where: { id: batchId },
+      include: {
+        errors: {
+          where: { code: { in: ['MISSING_ID', 'UNKNOWN_ORGANIZATION'] } },
+          orderBy: [{ sourceSheet: 'asc' }, { sourceRow: 'asc' }],
+          take: 50,
+          select: {
+            code: true,
+            sourceSheet: true,
+            sourceRow: true,
+            field: true,
+            message: true,
+          },
+        },
+      },
+    });
+    return batch ? mapBatch(batch, batch.errors) : null;
   },
 };

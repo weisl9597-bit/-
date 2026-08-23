@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import JSZip from 'jszip';
 import { describe, expect, it } from 'vitest';
 
 import { sha256 } from '../src/hash-file';
@@ -54,6 +55,24 @@ describe('parseWorkbook', () => {
 
   it('rejects a workbook when either selected sheet is missing', async () => {
     await expect(parseWorkbook(Buffer.from('not an xlsx'))).rejects.toThrow();
+  });
+
+  it('accepts 装修公司 as the merchant name header used by the supplied workbook', async () => {
+    const fixture = await readFile(resolve(fixtures, 'designbao-valid.xlsx'));
+    const zip = await JSZip.loadAsync(fixture);
+    let replaced = false;
+    for (const [path, entry] of Object.entries(zip.files)) {
+      if (!path.startsWith('xl/worksheets/') || !path.endsWith('.xml')) continue;
+      const source = await entry.async('string');
+      if (!source.includes('装企名称')) continue;
+      zip.file(path, source.replaceAll('装企名称', '装修公司'));
+      replaced = true;
+    }
+    expect(replaced).toBe(true);
+
+    const parsed = await parseWorkbook(await zip.generateAsync({ type: 'nodebuffer' }));
+
+    expect(parsed.projects[0]?.merchantName).toBe('示例装企A');
   });
 });
 

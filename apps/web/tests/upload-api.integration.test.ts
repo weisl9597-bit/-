@@ -21,6 +21,9 @@ function setup() {
         (batch) => batch.fileHash === fileHash && batch.dataDate === dataDate,
       ) ?? null;
     },
+    async retryDuplicate(batch) {
+      return batch;
+    },
     async putObject(objectKey, bytes) {
       storedObjects.set(objectKey, Buffer.from(bytes));
     },
@@ -78,5 +81,23 @@ describe('admin upload API', () => {
 
     expect(response.status).toBe(415);
     expect(batches.size).toBe(0);
+  });
+
+  it('requeues a recoverable duplicate batch before returning its status', async () => {
+    const { dependencies, batches } = setup();
+    const handler = createUploadHandler(dependencies);
+    await handler(await uploadRequest());
+    const existing = batches.get('batch-1')!;
+    existing.status = 'PROCESSING';
+    dependencies.retryDuplicate = async (batch) => ({ ...batch, status: 'QUEUED' });
+
+    const response = await handler(await uploadRequest());
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'DUPLICATE_FILE',
+      batchId: 'batch-1',
+      status: 'QUEUED',
+    });
   });
 });

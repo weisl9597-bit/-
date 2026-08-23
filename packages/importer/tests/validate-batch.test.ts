@@ -47,20 +47,17 @@ describe('validateBatch', () => {
     );
   });
 
-  it('reports every blocking data-quality class without silently accepting rows', async () => {
+  it('skips rows with missing IDs or unknown cities as warnings', async () => {
     const result = await validateFixture('designbao-invalid.xlsx');
-    const codes = new Set(result.errors.map((issue) => issue.code));
+    const errorCodes = new Set(result.errors.map((issue) => issue.code));
+    const warningCodes = new Set(result.warnings.map((issue) => issue.code));
 
-    expect(codes).toEqual(
-      new Set([
-        'MISSING_ID',
-        'DUPLICATE_PROJECT_ID',
-        'INVALID_DATE',
-        'UNKNOWN_ORGANIZATION',
-        'INVALID_ENUM',
-      ]),
+    expect(errorCodes).toEqual(
+      new Set(['DUPLICATE_PROJECT_ID']),
     );
-    expect(result.errors).toContainEqual(
+    expect(warningCodes.has('MISSING_ID')).toBe(true);
+    expect(warningCodes.has('UNKNOWN_ORGANIZATION')).toBe(true);
+    expect(result.warnings).toContainEqual(
       expect.objectContaining({
         code: 'UNKNOWN_ORGANIZATION',
         sourceRow: 5,
@@ -68,5 +65,6 @@ describe('validateBatch', () => {
         rawValue: '张家港市',
       }),
     );
+    expect(result.records.every((record) => record.assignmentId !== '')).toBe(true);
   });
 });

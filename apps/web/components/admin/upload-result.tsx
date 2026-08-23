@@ -6,6 +6,14 @@ export type UploadResultData = {
   acceptedRows?: number;
   warningCount?: number;
   errorCount?: number;
+  skippedRows?: number;
+  issues?: Array<{
+    code: string;
+    sourceSheet: string;
+    sourceRow: number | null;
+    field: string | null;
+    message: string;
+  }>;
 };
 
 export function UploadResult({ result }: { result: UploadResultData }) {
@@ -18,9 +26,17 @@ export function UploadResult({ result }: { result: UploadResultData }) {
       <dl>
         <div><dt>总行数</dt><dd>{result.totalRows ?? '—'}</dd></div>
         <div><dt>成功</dt><dd>{result.acceptedRows ?? '—'}</dd></div>
+        <div><dt>跳过</dt><dd>{result.skippedRows ?? 0}</dd></div>
         <div><dt>警告</dt><dd>{result.warningCount ?? 0}</dd></div>
         <div><dt>错误</dt><dd>{result.errorCount ?? 0}</dd></div>
       </dl>
+      {result.issues && result.issues.length > 0 && <div className="upload-issues">
+        <h4>跳过原因（最多显示50条）</h4>
+        <ul>{result.issues.map((item, index) => <li key={`${item.sourceSheet}-${item.sourceRow}-${item.field}-${index}`}>
+          <strong>{item.sourceSheet}{item.sourceRow ? ` 第 ${item.sourceRow} 行` : ''}</strong>
+          <span>{item.message}</span>
+        </li>)}</ul>
+      </div>}
     </section>
   );
 }

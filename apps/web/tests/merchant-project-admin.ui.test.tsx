@@ -38,6 +38,33 @@ describe('merchant, project and admin UI', () => {
     expect(html).toContain('509');
   });
 
+  it('shows skipped-row counts and reasons after a partial successful import', () => {
+    const html = renderToStaticMarkup(createElement(UploadResult, {
+      result: {
+        status: 'SUCCEEDED',
+        totalRows: 2115,
+        acceptedRows: 1371,
+        skippedRows: 744,
+        warningCount: 744,
+        errorCount: 0,
+        issues: [
+          {
+            code: 'MISSING_ID',
+            sourceSheet: '项目明细2',
+            sourceRow: 8,
+            field: 'projectId',
+            message: '项目 ID 不能为空，该行已跳过。',
+          },
+        ],
+      },
+    }));
+
+    expect(html).toContain('跳过');
+    expect(html).toContain('744');
+    expect(html).toContain('第 8 行');
+    expect(html).toContain('项目 ID 不能为空，该行已跳过。');
+  });
+
   it('requires a reason and exposes candidate confirmation and exemption actions', () => {
     const html = renderToStaticMarkup(createElement(MerchantDecisionPanel, {
       merchantId: 'M1', merchantName: '示例装企', suggested: 'C', reason: '连续两周未改善',

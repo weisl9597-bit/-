@@ -3,7 +3,7 @@ export const selectedSheets = ['项目明细2', '工作表3'] as const;
 export const projectColumns = {
   city: ['城市', '装企城市', '你'],
   merchantId: ['装企ID', '商家ID', '商户ID'],
-  merchantName: ['装企名称', '商家名称'],
+  merchantName: ['装企名称', '商家名称', '装修公司'],
   projectId: ['项目ID', '项目id'],
   category: ['类别'],
   assignedAt: ['分派时间', '分派时间1'],

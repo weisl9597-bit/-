@@ -14,6 +14,14 @@ export type UploadRecord = {
   acceptedRows: number;
   errorCount: number;
   warningCount: number;
+  skippedRows?: number;
+  issues?: Array<{
+    code: string;
+    sourceSheet: string;
+    sourceRow: number | null;
+    field: string | null;
+    message: string;
+  }>;
 };
 
 export type QueuedUploadInput = Omit<
@@ -24,6 +32,7 @@ export type QueuedUploadInput = Omit<
 export type UploadHandlerDependencies = {
   authorize(request: Request): Promise<{ userId: string; role: string } | null>;
   findDuplicate(fileHash: string, dataDate: string): Promise<UploadRecord | null>;
+  retryDuplicate(batch: UploadRecord): Promise<UploadRecord>;
   putObject(objectKey: string, bytes: Uint8Array, contentType: string): Promise<void>;
   createQueued(input: QueuedUploadInput): Promise<UploadRecord>;
 };
@@ -73,7 +82,8 @@ export function createUploadHandler(dependencies: UploadHandlerDependencies) {
     const fileHash = sha256(Buffer.from(bytes));
     const duplicate = await dependencies.findDuplicate(fileHash, dataDate);
     if (duplicate) {
-      return json({ error: 'DUPLICATE_FILE', batchId: duplicate.id }, 409);
+      const batch = await dependencies.retryDuplicate(duplicate);
+      return json({ error: 'DUPLICATE_FILE', batchId: batch.id, status: batch.status }, 409);
     }
 
     const objectKey = `uploads/${dataDate}/${fileHash}.xlsx`;

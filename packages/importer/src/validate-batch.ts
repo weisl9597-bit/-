@@ -226,6 +226,7 @@ export function validateBatch(parsed: ParsedWorkbook): BatchValidationResult {
 
   for (const row of parsed.projects) {
     const rowErrorStart = errors.length;
+    let rowSkipped = false;
     const city = clean(row.city);
     const merchantId = clean(row.merchantId);
     const projectId = clean(row.projectId);
@@ -233,10 +234,26 @@ export function validateBatch(parsed: ParsedWorkbook): BatchValidationResult {
     const organization = organizations.get(city);
 
     if (!merchantId) {
-      errors.push(issue(row, 'MISSING_ID', 'ERROR', 'merchantId', '装企 ID 不能为空。', row.merchantId));
+      warnings.push(issue(
+        row,
+        'MISSING_ID',
+        'WARNING',
+        'merchantId',
+        '装企 ID 不能为空，该行已跳过。',
+        row.merchantId,
+      ));
+      rowSkipped = true;
     }
     if (!projectId) {
-      errors.push(issue(row, 'MISSING_ID', 'ERROR', 'projectId', '项目 ID 不能为空。', row.projectId));
+      warnings.push(issue(
+        row,
+        'MISSING_ID',
+        'WARNING',
+        'projectId',
+        '项目 ID 不能为空，该行已跳过。',
+        row.projectId,
+      ));
+      rowSkipped = true;
     } else if (merchantId && (assignmentCounts.get(assignmentId) ?? 0) > 1) {
       errors.push(
         issue(
@@ -250,24 +267,27 @@ export function validateBatch(parsed: ParsedWorkbook): BatchValidationResult {
       );
     }
 
-    const assignedAt = normalizeDate(row.assignedAt);
-    if (!assignedAt) {
-      errors.push(issue(row, 'INVALID_DATE', 'ERROR', 'assignedAt', '分派时间无法识别为有效日期。', row.assignedAt));
-    }
-
     if (!city || !organization || organization.ambiguousRegion) {
-      errors.push(
+      warnings.push(
         issue(
           row,
           'UNKNOWN_ORGANIZATION',
-          'ERROR',
+          'WARNING',
           'city',
           organization?.ambiguousRegion
-            ? '该城市在工作表3中对应多个大区。'
-            : '该城市未在工作表3中找到大区映射。',
+            ? '该城市在工作表3中对应多个大区，该行已跳过。'
+            : '该城市未在工作表3中找到大区映射，该行已跳过。',
           row.city,
         ),
       );
+      rowSkipped = true;
+    }
+
+    if (rowSkipped) continue;
+
+    const assignedAt = normalizeDate(row.assignedAt);
+    if (!assignedAt) {
+      errors.push(issue(row, 'INVALID_DATE', 'ERROR', 'assignedAt', '分派时间无法识别为有效日期。', row.assignedAt));
     }
 
     const followWithin30m = normalizeBoolean(
