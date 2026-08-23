@@ -213,6 +213,98 @@ export function requeueOutdatedImportJobs(formulaVersion: string): Promise<numbe
   );
 }
 
+export type BusinessSourceRebuildQueueResult = {
+  rebuildVersion: string;
+  queued: number;
+  requeued: Array<{ batchId: string; dataDate: string }>;
+};
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function rebuildDate(value: Date | string): string {
+  return value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
+}
+
+export async function requeueBusinessSourceRebuildWithDatabase(
+  rebuildVersion: string,
+  database: JobDatabase,
+  now = new Date(),
+): Promise<BusinessSourceRebuildQueueResult> {
+  return database.transaction(async (transaction) => {
+    const batches = await transaction.query<{
+      batchId: string;
+      dataDate: Date | string;
+      metricsJobId: string;
+      metricsPayload: unknown;
+      rulesJobId: string;
+      rulesPayload: unknown;
+    }>(
+      `
+        SELECT batch."id" AS "batchId", batch."dataDate" AS "dataDate",
+               metrics."id" AS "metricsJobId", metrics."payload" AS "metricsPayload",
+               rules."id" AS "rulesJobId", rules."payload" AS "rulesPayload"
+        FROM "UploadBatch" AS batch
+        INNER JOIN "Job" AS metrics
+          ON metrics."sourceBatchId" = batch."id" AND metrics."type" = 'METRICS'
+        INNER JOIN "Job" AS rules
+          ON rules."sourceBatchId" = batch."id" AND rules."type" = 'RULES'
+        WHERE batch."status" = 'SUCCEEDED'
+        ORDER BY batch."dataDate" ASC, batch."createdAt" ASC
+      `,
+      [],
+    );
+
+    const requeued: Array<{ batchId: string; dataDate: string }> = [];
+    for (const [index, batch] of batches.entries()) {
+      const dataDate = rebuildDate(batch.dataDate);
+      const metricsPayload = {
+        ...jsonObject(batch.metricsPayload), dataDate, rebuildVersion,
+      };
+      const rulesPayload = {
+        ...jsonObject(batch.rulesPayload), dataDate, rebuildVersion,
+      };
+      const availableAt = new Date(now.getTime() + index * 1_000);
+      await transaction.execute(
+        `
+          UPDATE "Job"
+          SET "payload" = $1::jsonb, "status" = 'QUEUED', "attempts" = 0,
+              "availableAt" = $2, "lockedBy" = NULL, "lockedAt" = NULL,
+              "lastError" = NULL, "updatedAt" = $3
+          WHERE "id" = $4
+        `,
+        [JSON.stringify(metricsPayload), availableAt, now, batch.metricsJobId],
+      );
+      await transaction.execute(
+        `UPDATE "Job" SET "payload" = $1::jsonb, "updatedAt" = $2 WHERE "id" = $3`,
+        [JSON.stringify(rulesPayload), now, batch.rulesJobId],
+      );
+      requeued.push({ batchId: batch.batchId, dataDate });
+    }
+    return { rebuildVersion, queued: requeued.length, requeued };
+  });
+}
+
+export function requeueBusinessSourceRebuild(
+  rebuildVersion = 'business-source-v2',
+): Promise<BusinessSourceRebuildQueueResult> {
+  return requeueBusinessSourceRebuildWithDatabase(rebuildVersion, prismaJobDatabase, new Date());
+}
+
 export type FailJobResult = {
   exhausted: boolean;
   batchId: string | null;
@@ -391,3 +483,4 @@ export async function failJobWithDatabase(
 export function failJob(jobId: string, error: unknown): Promise<FailJobResult> {
   return failJobWithDatabase(jobId, error, prismaJobDatabase, new Date());
 }
+

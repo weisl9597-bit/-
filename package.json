@@ -10,6 +10,7 @@
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
     "dev": "node apps/web/node_modules/next/dist/bin/next dev apps/web",
     "lint": "eslint \"apps/**/*.{ts,tsx}\" \"packages/**/*.{ts,tsx}\" --no-error-on-unmatched-pattern --max-warnings=0",
+    "rebuild:business-source": "tsx scripts/requeue-business-source-rebuild.ts",
     "start": "node node_modules/tsx/dist/cli.mjs scripts/start-web.ts",
     "test": "vitest run apps/web/tests apps/worker/tests packages/domain/tests packages/db/tests packages/importer/tests packages/metrics/tests packages/rules/tests packages/storage/tests infra/backup/*.test.ts",
     "test:e2e": "node scripts/run-e2e.mjs",
@@ -30,3 +31,4 @@
     "vitest": "^3.2.0"
   }
 }
+

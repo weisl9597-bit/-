@@ -52,7 +52,9 @@ export const prismaDashboardRepository: DashboardRepository = {
     ]);
     const latestByMerchant = new Map<string, DashboardClassification>();
     for (const row of classificationRows) {
-      if (!latestByMerchant.has(row.merchantId)) latestByMerchant.set(row.merchantId, row.classification);
+      if (row.classification && !latestByMerchant.has(row.merchantId)) {
+        latestByMerchant.set(row.merchantId, row.classification);
+      }
     }
     return {
       dataDate: batch.dataDate.toISOString().slice(0, 10),
@@ -91,3 +93,4 @@ export async function getDashboard(
     alerts: { coaching, improvement, projects },
   };
 }
+

@@ -7,6 +7,7 @@ import {
   claimNextJobWithDatabase,
   completeJobWithDatabase,
   failJobWithDatabase,
+  requeueBusinessSourceRebuildWithDatabase,
   requeueOutdatedImportJobsWithDatabase,
   type JobDatabase,
   type JobTransaction,
@@ -174,6 +175,62 @@ describe('job claiming', () => {
 });
 
 describe('job completion handling', () => {
+  it('requeues successful batches chronologically for the source-aware rebuild', async () => {
+    const database = new PGlite();
+    await database.exec(migrationSql);
+    await database.exec(`
+      INSERT INTO "UploadBatch" ("id", "fileName", "fileHash", "dataDate", "status", "createdAt", "updatedAt") VALUES
+        ('batch-3', '3.xlsx', 'hash-3', DATE '2026-08-03', 'SUCCEEDED', TIMESTAMPTZ '2026-08-03 08:00:00+00', NOW()),
+        ('batch-1', '1.xlsx', 'hash-1', DATE '2026-08-01', 'SUCCEEDED', TIMESTAMPTZ '2026-08-01 08:00:00+00', NOW()),
+        ('batch-2', '2.xlsx', 'hash-2', DATE '2026-08-02', 'SUCCEEDED', TIMESTAMPTZ '2026-08-02 08:00:00+00', NOW());
+      INSERT INTO "Job" ("id", "type", "status", "sourceBatchId", "payload", "attempts", "updatedAt") VALUES
+        ('metrics-3', 'METRICS', 'SUCCEEDED', 'batch-3', '{"batchId":"batch-3"}'::jsonb, 1, NOW()),
+        ('rules-3', 'RULES', 'SUCCEEDED', 'batch-3', '{"batchId":"batch-3"}'::jsonb, 1, NOW()),
+        ('metrics-1', 'METRICS', 'SUCCEEDED', 'batch-1', '{"batchId":"batch-1"}'::jsonb, 1, NOW()),
+        ('rules-1', 'RULES', 'SUCCEEDED', 'batch-1', '{"batchId":"batch-1"}'::jsonb, 1, NOW()),
+        ('metrics-2', 'METRICS', 'SUCCEEDED', 'batch-2', '{"batchId":"batch-2"}'::jsonb, 1, NOW()),
+        ('rules-2', 'RULES', 'SUCCEEDED', 'batch-2', '{"batchId":"batch-2"}'::jsonb, 1, NOW());
+    `);
+    const adapter: JobDatabase = {
+      transaction(operation) {
+        return database.transaction(async (tx) => operation({
+          async query<T>(sql: string, parameters: unknown[]): Promise<T[]> {
+            const result = await tx.query<T>(sql, parameters);
+            return result.rows;
+          },
+          async execute(sql: string, parameters: unknown[]): Promise<void> {
+            await tx.query(sql, parameters);
+          },
+        }));
+      },
+    };
+
+    const result = await requeueBusinessSourceRebuildWithDatabase(
+      'business-source-v2', adapter, new Date('2026-08-24T00:00:00Z'),
+    );
+
+    expect(result.requeued.map((row) => row.dataDate)).toEqual([
+      '2026-08-01', '2026-08-02', '2026-08-03',
+    ]);
+    const jobs = await database.query<{ type: string; status: string; payload: Record<string, string>; availableAt: Date }>(
+      `SELECT "type", "status", "payload", "availableAt" FROM "Job" WHERE "sourceBatchId" = 'batch-2' ORDER BY "type"`,
+    );
+    expect(jobs.rows[0]).toMatchObject({
+      type: 'METRICS', status: 'QUEUED',
+      payload: { dataDate: '2026-08-02', rebuildVersion: 'business-source-v2' },
+    });
+    expect(jobs.rows[1]).toMatchObject({
+      type: 'RULES', status: 'SUCCEEDED',
+      payload: { dataDate: '2026-08-02', rebuildVersion: 'business-source-v2' },
+    });
+    const schedule = await database.query<{ sourceBatchId: string; availableAt: Date }>(
+      `SELECT "sourceBatchId", "availableAt" FROM "Job" WHERE "type" = 'METRICS' ORDER BY "sourceBatchId"`,
+    );
+    expect(schedule.rows[1]!.availableAt.getTime() - schedule.rows[0]!.availableAt.getTime()).toBe(1_000);
+    expect(schedule.rows[2]!.availableAt.getTime() - schedule.rows[1]!.availableAt.getTime()).toBe(1_000);
+    await database.close();
+  });
+
   it('requeues the source import when the metric formula version changes', async () => {
     const database = new PGlite();
     await database.exec(migrationSql);
@@ -405,3 +462,4 @@ describe('job failure handling', () => {
     await database.close();
   });
 });
+
