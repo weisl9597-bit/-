@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { MerchantListQuery } from './merchants';
 import type { MetricCenterQuery } from './metrics';
+import { parseOperationsFilter } from './operations-filters';
 import type { ProjectListQuery } from './projects';
 export { parseOperationsFilter } from './operations-filters';
 
@@ -44,6 +45,7 @@ export function parseMetricRequest(url: URL): MetricCenterQuery {
 export function parseMerchantRequest(url: URL): MerchantListQuery {
   const classificationValue = url.searchParams.get('classification');
   return {
+    ...parseOperationsFilter(url),
     cursor: url.searchParams.get('cursor'),
     limit: optionalInteger(url, 'limit'),
     search: url.searchParams.get('search') || undefined,

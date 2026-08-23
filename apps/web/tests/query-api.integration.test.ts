@@ -8,7 +8,12 @@ import {
 } from '../lib/queries/dashboard';
 import type { OperationsSelection } from '../lib/queries/operations-scope';
 import { getMetricCenterData } from '../lib/queries/metrics';
-import { listMerchants, type MerchantListRepository } from '../lib/queries/merchants';
+import {
+  listMerchants,
+  listMerchantsForRollout,
+  type LegacyMerchantListRepository,
+  type MerchantListRepository,
+} from '../lib/queries/merchants';
 import { listProjects, type ProjectListRepository } from '../lib/queries/projects';
 import { parseMerchantRequest, parseMetricRequest, parseProjectRequest } from '../lib/queries/request';
 
@@ -81,6 +86,60 @@ describe('organization-scoped query contracts', () => {
       true, { source: 'XIAOHONGSHU' }, cityScope,
       { repository, legacyRepository, resolveSelection },
     );
+    expect(sourceAwareLoads).toBe(1);
+  });
+
+  it('lists merchants from the selected source and organization snapshot only', async () => {
+    let receivedSelection: OperationsSelection | undefined;
+    const repository: MerchantListRepository = {
+      async list(query) {
+        receivedSelection = query.selection;
+        return {
+          items: [{
+            id: 'M1', name: '示例装饰', organizationId: 'city-1',
+            classification: 'B', dataAvailable: true, sopRate: 55,
+            projectCount: 3, lastAssignedAt: '2026-08-20T00:00:00.000Z',
+          }],
+          nextCursor: null,
+        };
+      },
+    };
+    const result = await listMerchants(
+      { source: 'XIAOHONGSHU', cityId: 'city-1' },
+      cityScope,
+      repository,
+      async () => ({ source: 'XIAOHONGSHU', cityId: 'city-1', organizationIds: ['city-1'] }),
+    );
+    expect(receivedSelection).toMatchObject({ source: 'XIAOHONGSHU', organizationIds: ['city-1'] });
+    expect(result.items[0]).toMatchObject({
+      id: 'M1', classification: 'B', dataAvailable: true,
+      projectCount: 3, sopRate: 55,
+      lastAssignedAt: '2026-08-20T00:00:00.000Z',
+    });
+    expect(result.items.map((item) => item.id)).not.toContain('M-DESIGNBAO-ONLY');
+  });
+
+  it('uses legacy merchant data only while source-aware rollout is disabled', async () => {
+    let legacyLoads = 0;
+    let sourceAwareLoads = 0;
+    const empty = { items: [], nextCursor: null };
+    const legacyRepository: LegacyMerchantListRepository = {
+      list: async () => { legacyLoads += 1; return empty; },
+    };
+    const repository: MerchantListRepository = {
+      list: async () => { sourceAwareLoads += 1; return empty; },
+    };
+    const resolveSelection = async (): Promise<OperationsSelection> => ({
+      source: 'XIAOHONGSHU', organizationIds: ['city-1'],
+    });
+    await listMerchantsForRollout(false, { source: 'XIAOHONGSHU' }, cityScope, {
+      repository, legacyRepository, resolveSelection,
+    });
+    expect(legacyLoads).toBe(1);
+    expect(sourceAwareLoads).toBe(0);
+    await listMerchantsForRollout(true, { source: 'XIAOHONGSHU' }, cityScope, {
+      repository, legacyRepository, resolveSelection,
+    });
     expect(sourceAwareLoads).toBe(1);
   });
 
