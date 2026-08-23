@@ -47,4 +47,31 @@ describe('admin upload client flow', () => {
       message: '上传失败，请检查网络后重试',
     });
   });
+
+  it('restores the latest failed batch after the page is reopened', async () => {
+    const module = await import('../components/admin/upload-client').catch(() => ({}));
+    expect(module).toHaveProperty('loadLatestUpload');
+    if (!('loadLatestUpload' in module)) return;
+
+    const latest = await (module as {
+      loadLatestUpload(request: () => Promise<Response>): Promise<unknown>;
+    }).loadLatestUpload(async () => Response.json({
+      id: 'batch-1',
+      status: 'FAILED',
+      failureStage: 'IMPORT',
+      failureMessage: '数据库写入超时',
+      totalRows: 2026,
+      acceptedRows: 0,
+      warningCount: 591,
+      errorCount: 0,
+    }));
+
+    expect(latest).toMatchObject({
+      id: 'batch-1',
+      status: 'FAILED',
+      failureStage: 'IMPORT',
+      failureMessage: '数据库写入超时',
+    });
+  });
 });
+

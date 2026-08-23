@@ -65,6 +65,19 @@ describe('merchant, project and admin UI', () => {
     expect(html).toContain('项目 ID 不能为空，该行已跳过。');
   });
 
+  it('shows the terminal import stage and failure reason', () => {
+    const html = renderToStaticMarkup(createElement(UploadResult, {
+      result: {
+        status: 'FAILED',
+        failureStage: 'IMPORT',
+        failureMessage: '数据库写入超时',
+      },
+    }));
+
+    expect(html).toContain('失败原因（IMPORT）');
+    expect(html).toContain('数据库写入超时');
+  });
+
   it('requires a reason and exposes candidate confirmation and exemption actions', () => {
     const html = renderToStaticMarkup(createElement(MerchantDecisionPanel, {
       merchantId: 'M1', merchantName: '示例装企', suggested: 'C', reason: '连续两周未改善',
@@ -76,3 +89,4 @@ describe('merchant, project and admin UI', () => {
     expect(html).toContain('required');
   });
 });
+

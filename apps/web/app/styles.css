@@ -724,6 +724,9 @@ button {
 .upload-result dl div { padding: 12px; border-radius: 9px; background: #fff; }
 .upload-result dt { color: #7a849b; font-size: 11px; }
 .upload-result dd { margin: 5px 0 0; color: #17223f; font-size: 20px; font-weight: 800; }
+.upload-failure { display: grid; gap: 6px; margin-top: 16px; padding: 13px 14px; border: 1px solid #f0b8bd; border-radius: 10px; color: #8f2631; background: #fff3f4; }
+.upload-failure strong { font-size: 13px; }
+.upload-failure span { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .upload-issues { margin-top: 16px; padding-top: 16px; border-top: 1px solid #e5e9f2; }
 .upload-issues h4 { color: #39445e; font-size: 13px; }
 .upload-issues ul { max-height: 280px; overflow-y: auto; margin: 10px 0 0; padding: 0; list-style: none; }
@@ -794,3 +797,4 @@ button {
   .filter-bar > * { width: 100%; }
   .filter-bar > input { min-width: 0; }
 }
+

@@ -1,12 +1,15 @@
 import React from 'react';
 
 export type UploadResultData = {
+  id?: string;
   status: 'QUEUED' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED';
   totalRows?: number;
   acceptedRows?: number;
   warningCount?: number;
   errorCount?: number;
   skippedRows?: number;
+  failureStage?: string | null;
+  failureMessage?: string | null;
   issues?: Array<{
     code: string;
     sourceSheet: string;
@@ -30,6 +33,10 @@ export function UploadResult({ result }: { result: UploadResultData }) {
         <div><dt>警告</dt><dd>{result.warningCount ?? 0}</dd></div>
         <div><dt>错误</dt><dd>{result.errorCount ?? 0}</dd></div>
       </dl>
+      {result.status === 'FAILED' && result.failureMessage && <div className="upload-failure">
+        <strong>失败原因{result.failureStage ? `（${result.failureStage}）` : ''}</strong>
+        <span>{result.failureMessage}</span>
+      </div>}
       {result.issues && result.issues.length > 0 && <div className="upload-issues">
         <h4>跳过原因（最多显示50条）</h4>
         <ul>{result.issues.map((item, index) => <li key={`${item.sourceSheet}-${item.sourceRow}-${item.field}-${index}`}>
@@ -40,3 +47,4 @@ export function UploadResult({ result }: { result: UploadResultData }) {
     </section>
   );
 }
+
