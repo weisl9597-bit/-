@@ -3,8 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./business-source": "./src/business-source.ts",
     "./period": "./src/period.ts",
     "./sop": "./src/sop.ts",
     "./types": "./src/types.ts"
   }
 }
+

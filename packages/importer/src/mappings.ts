@@ -5,6 +5,7 @@ export const projectColumns = {
   merchantId: ['装企ID', '商家ID', '商户ID'],
   merchantName: ['装企名称', '商家名称', '装修公司'],
   projectId: ['项目ID', '项目id'],
+  businessSource: ['类别'],
   category: ['类别'],
   assignedAt: ['分派时间1', '分派时间'],
   followWithin30m: ['30min内跟进', '30分钟内跟进'],
@@ -35,3 +36,4 @@ export function normalizeHeader(value: unknown): string {
     .replace(/[）)]/g, '）')
     .toLowerCase();
 }
+

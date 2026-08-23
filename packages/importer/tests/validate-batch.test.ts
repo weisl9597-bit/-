@@ -20,6 +20,7 @@ describe('validateBatch', () => {
     expect(result.records).toHaveLength(2);
     expect(result.records[0]).toMatchObject({
       assignmentId: 'P001::M001',
+      businessSource: 'DESIGNBAO',
       city: '北京市',
       region: '北京大区',
       assignedAt: '2026-08-19',
@@ -47,6 +48,19 @@ describe('validateBatch', () => {
     );
   });
 
+  it('normalizes Xiaohongshu and unknown channel values without merging them', async () => {
+    const parsed = await parseWorkbook(
+      await readFile(resolve(fixtures, 'designbao-valid.xlsx')),
+    );
+    parsed.projects[0]!.businessSourceRaw = '小红书';
+    parsed.projects[1]!.businessSourceRaw = '未知渠道';
+
+    const result = validateBatch(parsed);
+
+    expect(result.records[0]?.businessSource).toBe('XIAOHONGSHU');
+    expect(result.records[1]?.businessSource).toBe('OTHER');
+  });
+
   it('skips rows with missing IDs or unknown cities as warnings', async () => {
     const result = await validateFixture('designbao-invalid.xlsx');
     const errorCodes = new Set(result.errors.map((issue) => issue.code));
@@ -68,3 +82,4 @@ describe('validateBatch', () => {
     expect(result.records.every((record) => record.assignmentId !== '')).toBe(true);
   });
 });
+

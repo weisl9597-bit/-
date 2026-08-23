@@ -9,7 +9,9 @@
     "./validate-batch": "./src/validate-batch.ts"
   },
   "dependencies": {
+    "@designbao/domain": "workspace:*",
     "fast-xml-parser": "^5.2.5",
     "jszip": "^3.10.1"
   }
 }
+

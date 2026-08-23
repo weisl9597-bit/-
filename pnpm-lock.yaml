@@ -135,6 +135,9 @@ importers:
 
   packages/importer:
     dependencies:
+      '@designbao/domain':
+        specifier: workspace:*
+        version: link:../domain
       fast-xml-parser:
         specifier: ^5.2.5
         version: 5.11.0
@@ -3663,3 +3666,4 @@ snapshots:
   yocto-queue@0.1.0: {}
 
   zod@4.4.3: {}
+

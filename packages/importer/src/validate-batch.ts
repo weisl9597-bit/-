@@ -1,3 +1,8 @@
+import {
+  normalizeBusinessSource,
+  type ActualBusinessSource,
+} from '@designbao/domain/business-source';
+
 import type {
   ParsedProjectRow,
   ParsedWorkbook,
@@ -33,6 +38,7 @@ export type CanonicalProjectRow = {
   merchantName: string | null;
   assignmentId: string;
   projectId: string;
+  businessSource: ActualBusinessSource;
   category: string | null;
   assignedAt: string;
   followWithin30m: boolean | null;
@@ -341,6 +347,9 @@ export function validateBatch(parsed: ParsedWorkbook): BatchValidationResult {
       merchantName: clean(row.merchantName) || null,
       assignmentId,
       projectId,
+      businessSource: normalizeBusinessSource(
+        row.businessSourceRaw ?? row.category ?? row.raw.F,
+      ),
       category: clean(row.category) || null,
       assignedAt,
       followWithin30m,
@@ -355,3 +364,4 @@ export function validateBatch(parsed: ParsedWorkbook): BatchValidationResult {
 
   return { records, errors, warnings };
 }
+

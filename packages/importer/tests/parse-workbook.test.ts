@@ -14,6 +14,10 @@ describe('parseWorkbook', () => {
     expect(projectColumns.assignedAt[0]).toBe('分派时间1');
   });
 
+  it('treats 类别 as the raw business source column', () => {
+    expect(projectColumns.businessSource[0]).toBe('类别');
+  });
+
   it('reads only 项目明细2 and 工作表3 using the real two-level headers', async () => {
     const buffer = await readFile(resolve(fixtures, 'designbao-valid.xlsx'));
 
@@ -27,6 +31,7 @@ describe('parseWorkbook', () => {
       city: '北京市',
       merchantId: 'M001',
       projectId: 'P001',
+      businessSourceRaw: '设计宝',
       assignedAt: expect.any(Date),
       followWithin30m: '是',
       needsAnalyzed: '是',
@@ -101,3 +106,4 @@ describe('expandMergedCellValues', () => {
     expect(rows.get(5)?.get(4)).toBe('P001');
   });
 });
+

@@ -17,6 +17,7 @@ export type ParsedProjectRow = {
   merchantId: WorkbookCellValue;
   merchantName: WorkbookCellValue;
   projectId: WorkbookCellValue;
+  businessSourceRaw: WorkbookCellValue;
   category: WorkbookCellValue;
   assignedAt: WorkbookCellValue;
   followWithin30m: WorkbookCellValue;
@@ -325,6 +326,7 @@ export async function parseWorkbook(buffer: Buffer): Promise<ParsedWorkbook> {
       merchantId: valueAt(row, projectColumn.merchantId),
       merchantName: valueAt(row, projectColumn.merchantName),
       projectId: valueAt(row, projectColumn.projectId),
+      businessSourceRaw: valueAt(row, projectColumn.businessSource),
       category: valueAt(row, projectColumn.category),
       assignedAt: dateCell(valueAt(row, projectColumn.assignedAt)),
       followWithin30m: valueAt(row, projectColumn.followWithin30m),
@@ -360,3 +362,4 @@ export async function parseWorkbook(buffer: Buffer): Promise<ParsedWorkbook> {
     projectHeaders: projectHeaderMap(projectSheet),
   };
 }
+
