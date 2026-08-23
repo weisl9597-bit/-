@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { MerchantListQuery } from './merchants';
 import type { MetricCenterQuery } from './metrics';
 import type { ProjectListQuery } from './projects';
+export { parseOperationsFilter } from './operations-filters';
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).transform((value) => new Date(`${value}T00:00:00.000Z`));
 const classification = z.enum(['A', 'A_RISK', 'B', 'C_CANDIDATE', 'C', 'ELIMINATED']);
@@ -64,3 +65,4 @@ export function parseProjectRequest(url: URL): ProjectListQuery {
     improved: triState(url.searchParams.get('improved')),
   };
 }
+
