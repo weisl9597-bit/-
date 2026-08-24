@@ -25,6 +25,11 @@ function json(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
+export const rulePersistenceTransactionOptions = {
+  maxWait: 10_000,
+  timeout: 120_000,
+} as const;
+
 type DailyMetric = {
   metricId: string;
   businessSource: ActualBusinessSource | 'ALL';
@@ -329,6 +334,7 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
   },
 
   async persist({ dataDate, batchId, hits, decisions }) {
+    const snapshotDate = dateOnly(dataDate);
     await db.$transaction(async (transaction) => {
       await transaction.ruleHit.deleteMany({ where: { sourceBatchId: batchId, version: 'v2' } });
       if (hits.length > 0) {
@@ -341,7 +347,7 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
             projectId: hit.projectId,
             merchantId: hit.merchantId,
             businessSource: hit.businessSource,
-            dataDate: dateOnly(dataDate),
+            dataDate: snapshotDate,
             evidence: json(hit.evidence),
             reason: hit.reason,
             sourceBatchId: batchId,
@@ -349,28 +355,50 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
           skipDuplicates: true,
         });
       }
+
+      const merchantIds = [...new Set(decisions.map((item) => item.merchantId))];
+      const businessSources = [...new Set(decisions.map((item) => item.businessSource))];
+      const existingClassifications = decisions.length === 0
+        ? []
+        : await transaction.merchantClassificationSnapshot.findMany({
+          where: {
+            dataDate: snapshotDate,
+            merchantId: { in: merchantIds },
+            businessSource: { in: businessSources },
+          },
+          select: {
+            merchantId: true,
+            businessSource: true,
+            confirmedById: true,
+          },
+        });
+      const existingByKey = new Map(existingClassifications.map((row) => [
+        `${row.merchantId}|${row.businessSource}`,
+        row,
+      ]));
+
       for (const item of decisions) {
         const row = {
-            merchantId: item.merchantId,
-            dataDate: dateOnly(dataDate),
-            businessSource: item.businessSource,
-            dataAvailable: item.dataAvailable,
-            classification: item.dataAvailable ? item.suggested : null,
-            suggested: item.suggested,
-            reason: item.reason,
-            evidence: json(item.evidence),
-            ruleVersion: item.ruleVersion,
-            requiresConfirmation: item.requiresConfirmation,
-            effectiveAt: dateOnly(dataDate),
+          merchantId: item.merchantId,
+          dataDate: snapshotDate,
+          businessSource: item.businessSource,
+          dataAvailable: item.dataAvailable,
+          classification: item.dataAvailable ? item.suggested : null,
+          suggested: item.suggested,
+          reason: item.reason,
+          evidence: json(item.evidence),
+          ruleVersion: item.ruleVersion,
+          requiresConfirmation: item.requiresConfirmation,
+          effectiveAt: snapshotDate,
         };
         const where = {
           merchantId_dataDate_businessSource: {
             merchantId: item.merchantId,
-            dataDate: dateOnly(dataDate),
+            dataDate: snapshotDate,
             businessSource: item.businessSource,
           },
         };
-        const existing = await transaction.merchantClassificationSnapshot.findUnique({ where });
+        const existing = existingByKey.get(`${item.merchantId}|${item.businessSource}`);
         await transaction.merchantClassificationSnapshot.upsert({
           where,
           create: row,
@@ -383,7 +411,7 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
           } : row,
         });
       }
-    });
+    }, rulePersistenceTransactionOptions);
   },
 };
 
@@ -408,3 +436,4 @@ export async function runEvaluateRulesJob(input: {
     },
   );
 }
+
