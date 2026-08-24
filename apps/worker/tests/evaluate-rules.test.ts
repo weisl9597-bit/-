@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RuleEvaluationRepository } from '@designbao/rules/evaluate';
 import {
   decisionsForRollout,
+  rulePersistenceChunkSize,
   rulePersistenceTransactionOptions,
   runEvaluateRulesJob,
   selectHistoricalAssignments,
@@ -12,6 +13,7 @@ describe('rules worker job', () => {
   it('allows the source-aware classification rebuild to outlive Prisma interactive defaults', () => {
     expect(rulePersistenceTransactionOptions.timeout).toBeGreaterThanOrEqual(60_000);
     expect(rulePersistenceTransactionOptions.maxWait).toBeGreaterThanOrEqual(10_000);
+    expect(rulePersistenceChunkSize).toBeLessThanOrEqual(50);
   });
 
   it('evaluates the selected source batch through the supplied repository', async () => {

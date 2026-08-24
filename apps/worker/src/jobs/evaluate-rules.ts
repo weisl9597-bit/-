@@ -30,6 +30,8 @@ export const rulePersistenceTransactionOptions = {
   timeout: 120_000,
 } as const;
 
+export const rulePersistenceChunkSize = 50;
+
 type DailyMetric = {
   metricId: string;
   businessSource: ActualBusinessSource | 'ALL';
@@ -355,63 +357,68 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
           skipDuplicates: true,
         });
       }
+    }, rulePersistenceTransactionOptions);
 
-      const merchantIds = [...new Set(decisions.map((item) => item.merchantId))];
-      const businessSources = [...new Set(decisions.map((item) => item.businessSource))];
-      const existingClassifications = decisions.length === 0
-        ? []
-        : await transaction.merchantClassificationSnapshot.findMany({
-          where: {
-            dataDate: snapshotDate,
-            merchantId: { in: merchantIds },
-            businessSource: { in: businessSources },
-          },
-          select: {
-            merchantId: true,
-            businessSource: true,
-            confirmedById: true,
-          },
-        });
-      const existingByKey = new Map(existingClassifications.map((row) => [
-        `${row.merchantId}|${row.businessSource}`,
-        row,
-      ]));
-
-      for (const item of decisions) {
-        const row = {
-          merchantId: item.merchantId,
+    const merchantIds = [...new Set(decisions.map((item) => item.merchantId))];
+    const businessSources = [...new Set(decisions.map((item) => item.businessSource))];
+    const existingClassifications = decisions.length === 0
+      ? []
+      : await db.merchantClassificationSnapshot.findMany({
+        where: {
           dataDate: snapshotDate,
-          businessSource: item.businessSource,
-          dataAvailable: item.dataAvailable,
-          classification: item.dataAvailable ? item.suggested : null,
-          suggested: item.suggested,
-          reason: item.reason,
-          evidence: json(item.evidence),
-          ruleVersion: item.ruleVersion,
-          requiresConfirmation: item.requiresConfirmation,
-          effectiveAt: snapshotDate,
-        };
-        const where = {
-          merchantId_dataDate_businessSource: {
+          merchantId: { in: merchantIds },
+          businessSource: { in: businessSources },
+        },
+        select: {
+          merchantId: true,
+          businessSource: true,
+          confirmedById: true,
+        },
+      });
+    const existingByKey = new Map(existingClassifications.map((row) => [
+      `${row.merchantId}|${row.businessSource}`,
+      row,
+    ]));
+
+    for (let start = 0; start < decisions.length; start += rulePersistenceChunkSize) {
+      const chunk = decisions.slice(start, start + rulePersistenceChunkSize);
+      await db.$transaction(async (transaction) => {
+        for (const item of chunk) {
+          const row = {
             merchantId: item.merchantId,
             dataDate: snapshotDate,
             businessSource: item.businessSource,
-          },
-        };
-        const existing = existingByKey.get(`${item.merchantId}|${item.businessSource}`);
-        await transaction.merchantClassificationSnapshot.upsert({
-          where,
-          create: row,
-          update: existing?.confirmedById && row.dataAvailable ? {
-            suggested: row.suggested,
-            reason: row.reason,
-            evidence: row.evidence,
-            ruleVersion: row.ruleVersion,
-            dataAvailable: row.dataAvailable,
-          } : row,
-        });
-      }
-    }, rulePersistenceTransactionOptions);
+            dataAvailable: item.dataAvailable,
+            classification: item.dataAvailable ? item.suggested : null,
+            suggested: item.suggested,
+            reason: item.reason,
+            evidence: json(item.evidence),
+            ruleVersion: item.ruleVersion,
+            requiresConfirmation: item.requiresConfirmation,
+            effectiveAt: snapshotDate,
+          };
+          const where = {
+            merchantId_dataDate_businessSource: {
+              merchantId: item.merchantId,
+              dataDate: snapshotDate,
+              businessSource: item.businessSource,
+            },
+          };
+          const existing = existingByKey.get(`${item.merchantId}|${item.businessSource}`);
+          await transaction.merchantClassificationSnapshot.upsert({
+            where,
+            create: row,
+            update: existing?.confirmedById && row.dataAvailable ? {
+              suggested: row.suggested,
+              reason: row.reason,
+              evidence: row.evidence,
+              ruleVersion: row.ruleVersion,
+              dataAvailable: row.dataAvailable,
+            } : row,
+          });
+        }
+      }, rulePersistenceTransactionOptions);
+    }
   },
 };
 
