@@ -1,4 +1,7 @@
-import type { ActualBusinessSource } from '@designbao/domain/business-source';
+import {
+  normalizeBusinessSource,
+  type ActualBusinessSource,
+} from '@designbao/domain/business-source';
 import type { MetricDefinition } from './catalog';
 
 export type MetricRow = {
@@ -27,6 +30,109 @@ export type MetricResult = {
   numerator: number | null;
   denominator: number | null;
 };
+
+export type StoredMetricUploadRow = {
+  id: string;
+  sourceRow: number;
+  raw: unknown;
+  canonical?: unknown;
+};
+
+export type MetricOrganizationNode = {
+  id: string;
+  name: string;
+  level: string;
+  parent?: {
+    id: string;
+    parent?: { id: string } | null;
+  } | null;
+};
+
+function record(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function workbookDate(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return new Date(Date.UTC(1899, 11, 30) + Math.round(value * 86_400_000))
+      .toISOString().slice(0, 10);
+  }
+  if (typeof value !== 'string') return null;
+  const match = /^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/.exec(value.trim());
+  if (match?.[1] && match[2] && match[3]) {
+    return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+}
+
+function optionalBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value;
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) return null;
+  if (['是', '有', '已完成', '完成', '1', 'true'].includes(normalized)) return true;
+  if (['否', '无', '未完成', '0', 'false'].includes(normalized)) return false;
+  return null;
+}
+
+export function buildMetricRowsFromUpload(input: {
+  dataDate: string;
+  uploadRows: readonly StoredMetricUploadRow[];
+  organizations: readonly MetricOrganizationNode[];
+  merchantIds: readonly string[];
+}): MetricRow[] {
+  const nationalId = input.organizations.find(({ level }) => level === 'NATIONAL')?.id;
+  const cityByName = new Map(input.organizations
+    .filter(({ level }) => level === 'CITY')
+    .map((organization) => [organization.name.trim(), organization]));
+  const merchantIds = new Set(input.merchantIds);
+
+  return input.uploadRows.flatMap((uploadRow): MetricRow[] => {
+    const raw = record(uploadRow.raw);
+    const canonical = record(uploadRow.canonical);
+    const projectDate = workbookDate(raw.H)
+      ?? workbookDate(canonical.assignedAt)
+      ?? input.dataDate;
+    const cityName = String(canonical.city || raw.A || '').trim();
+    const city = cityByName.get(cityName);
+    const organizationIds = [
+      city?.parent?.parent?.id ?? nationalId,
+      city?.parent?.id,
+      city?.id,
+    ].filter((id): id is string => Boolean(id));
+    if (organizationIds.length === 0) return [];
+
+    const rawMerchantId = String(canonical.merchantId || raw.B || '').trim();
+    const merchantId = merchantIds.has(rawMerchantId) ? rawMerchantId : '';
+    const sourceProjectId = String(canonical.projectId || raw.D || '').trim()
+      || `row:${uploadRow.sourceRow}`;
+    const numericAssignmentCount = Number(raw.J);
+
+    return [{
+      rowId: uploadRow.id,
+      assignmentId: String(canonical.assignmentId || '').trim()
+        || `${sourceProjectId}::${merchantId || `row:${uploadRow.sourceRow}`}`,
+      sourceProjectId,
+      organizationIds,
+      merchantId,
+      dataDate: projectDate,
+      projectDate,
+      assignmentDate: workbookDate(raw.I) ?? projectDate,
+      signedDate: workbookDate(raw.AL),
+      assignmentCount: Number.isFinite(numericAssignmentCount) ? numericAssignmentCount : 0,
+      businessSource: normalizeBusinessSource(canonical.businessSource ?? raw.F),
+      followWithin30m: optionalBoolean(canonical.followWithin30m ?? raw.N),
+      needsAnalyzed: optionalBoolean(canonical.needsAnalyzed ?? raw.O),
+      hardInvite: optionalBoolean(canonical.hardInvite ?? raw.P),
+      needsCoaching: optionalBoolean(canonical.needsCoaching),
+      coached: optionalBoolean(canonical.coached),
+      improved: optionalBoolean(canonical.improved),
+      raw,
+    }];
+  });
+}
 
 function rounded(value: number): number {
   return Math.round((value + Number.EPSILON) * 10_000) / 10_000;
