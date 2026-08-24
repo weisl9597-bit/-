@@ -42,6 +42,7 @@ export async function buildMetricSnapshots(
   dataDate: string,
   batchId: string,
   repository: MetricSnapshotRepository,
+  options: { sourceAware?: boolean } = {},
 ): Promise<number> {
   const rows = await repository.loadRows({ dataDate, batchId });
   await repository.syncDefinitions(allMetricDefinitions);
@@ -88,7 +89,9 @@ export async function buildMetricSnapshots(
           periodEnd: period,
           organizationId,
           merchantId: scope === 'merchant' ? merchantId ?? null : null,
-          dimensionKey: scope === 'merchant' ? `merchant:${merchantId}` : 'organization',
+          dimensionKey: options.sourceAware === false
+            ? `source:${businessSource}|${scope === 'merchant' ? `merchant:${merchantId}` : 'organization'}`
+            : scope === 'merchant' ? `merchant:${merchantId}` : 'organization',
           ...result,
           source: 'CALCULATED',
           sourceBatchId: batchId,
@@ -102,4 +105,3 @@ export async function buildMetricSnapshots(
   await flushSnapshots();
   return snapshotCount;
 }
-

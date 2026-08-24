@@ -58,7 +58,9 @@ export const legacyDashboardRepository: LegacyDashboardRepository = {
     const [merchantTotal, classificationRows, projects] = await Promise.all([
       db.merchant.count({ where: { active: true, organizationId } }),
       db.merchantClassificationSnapshot.findMany({
-        where: { dataDate: { lte: batch.dataDate }, merchant: { organizationId } },
+        where: {
+          dataDate: { lte: batch.dataDate }, businessSource: 'ALL', merchant: { organizationId },
+        },
         orderBy: [{ merchantId: 'asc' }, { dataDate: 'desc' }],
         select: { merchantId: true, classification: true },
       }),
@@ -194,4 +196,3 @@ export async function getDashboardForRollout(
     ? getDashboard(filter, scope, dependencies.repository, dependencies.resolveSelection)
     : getLegacyDashboard(scope, dependencies.legacyRepository);
 }
-

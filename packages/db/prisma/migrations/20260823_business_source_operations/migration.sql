@@ -75,28 +75,87 @@ BEGIN
   END IF;
 END $$;
 
+-- Railway deploys migrations before every old container has stopped. Keep the
+-- pre-source-aware writers compatible during that rolling window: project
+-- snapshots derive their immutable facts, while records without source context
+-- receive the same neutral source used by the backfill above.
+CREATE FUNCTION "fill_legacy_project_snapshot_source"()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  project_assigned_at TIMESTAMP(3);
+BEGIN
+  IF NEW."businessSource" IS NULL THEN
+    NEW."businessSource" := CASE trim(COALESCE(NEW."raw"->>'F', ''))
+      WHEN '设计宝' THEN 'DESIGNBAO'::"BusinessSource"
+      WHEN '小红书' THEN 'XIAOHONGSHU'::"BusinessSource"
+      ELSE 'OTHER'::"BusinessSource"
+    END;
+  END IF;
+
+  IF NEW."assignedAt" IS NULL THEN
+    SELECT project."assignedAt"
+    INTO project_assigned_at
+    FROM "Project" AS project
+    WHERE project."id" = NEW."projectId";
+    NEW."assignedAt" := project_assigned_at;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "ProjectSnapshot_legacy_writer_defaults"
+BEFORE INSERT ON "ProjectSnapshot"
+FOR EACH ROW
+EXECUTE FUNCTION "fill_legacy_project_snapshot_source"();
+
+ALTER TABLE "MetricSnapshot"
+  ALTER COLUMN "businessSource" SET DEFAULT 'OTHER';
+ALTER TABLE "MerchantClassificationSnapshot"
+  ALTER COLUMN "businessSource" SET DEFAULT 'ALL';
+ALTER TABLE "RuleHit"
+  ALTER COLUMN "businessSource" SET DEFAULT 'OTHER';
+
 ALTER TABLE "ProjectSnapshot" ALTER COLUMN "businessSource" SET NOT NULL;
 ALTER TABLE "ProjectSnapshot" ALTER COLUMN "assignedAt" SET NOT NULL;
 ALTER TABLE "MetricSnapshot" ALTER COLUMN "businessSource" SET NOT NULL;
 ALTER TABLE "MerchantClassificationSnapshot" ALTER COLUMN "businessSource" SET NOT NULL;
 ALTER TABLE "RuleHit" ALTER COLUMN "businessSource" SET NOT NULL;
 
--- Rebuild uniqueness and lookup indexes with business source included.
-DROP INDEX "MetricSnapshot_metricId_grain_periodStart_organizationId_di_key";
+ALTER TABLE "ProjectSnapshot"
+  ADD CONSTRAINT "ProjectSnapshot_actual_business_source_check"
+  CHECK ("businessSource" <> 'ALL'::"BusinessSource");
+ALTER TABLE "MetricSnapshot"
+  ADD CONSTRAINT "MetricSnapshot_actual_business_source_check"
+  CHECK ("businessSource" <> 'ALL'::"BusinessSource");
+ALTER TABLE "RuleHit"
+  ADD CONSTRAINT "RuleHit_actual_business_source_check"
+  CHECK ("businessSource" <> 'ALL'::"BusinessSource");
+ALTER TABLE "MerchantClassificationSnapshot"
+  ADD CONSTRAINT "MerchantClassificationSnapshot_data_availability_check"
+  CHECK (
+    ("dataAvailable" = true AND "classification" IS NOT NULL AND "suggested" IS NOT NULL)
+    OR ("dataAvailable" = false AND "classification" IS NULL AND "suggested" IS NULL)
+  );
+
+-- Expand phase: add the source-aware identities without removing the legacy
+-- identities. The legacy indexes are removed only by the separately deployed
+-- contract migration after all old Railway containers have drained.
 CREATE UNIQUE INDEX "MetricSnapshot_source_dimension_batch_key"
   ON "MetricSnapshot"(
     "metricId", "grain", "periodStart", "organizationId", "dimensionKey",
     "businessSource", "sourceBatchId"
   );
 
-DROP INDEX "MerchantClassificationSnapshot_merchantId_dataDate_key";
 CREATE UNIQUE INDEX "MerchantClassificationSnapshot_merchant_date_source_key"
   ON "MerchantClassificationSnapshot"("merchantId", "dataDate", "businessSource");
 
-DROP INDEX "RuleHit_code_entityType_entityId_dataDate_version_key";
 CREATE UNIQUE INDEX "RuleHit_entity_date_version_source_key"
   ON "RuleHit"(
-    "code", "entityType", "entityId", "dataDate", "version", "businessSource"
+    "code", "entityType", "entityId", "dataDate", "version", "businessSource",
+    "sourceBatchId"
   );
 
 CREATE INDEX "ProjectSnapshot_businessSource_organizationId_dataDate_idx"
@@ -107,4 +166,3 @@ CREATE INDEX "MerchantClassificationSnapshot_businessSource_classification_dataD
   ON "MerchantClassificationSnapshot"("businessSource", "classification", "dataDate");
 CREATE INDEX "MerchantOverride_merchantId_businessSource_startDate_endDate_idx"
   ON "MerchantOverride"("merchantId", "businessSource", "startDate", "endDate");
-

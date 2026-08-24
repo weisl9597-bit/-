@@ -347,7 +347,7 @@ model MetricSnapshot {
   merchantId     String?
   merchant       Merchant?        @relation(fields: [merchantId], references: [id])
   dimensionKey   String
-  businessSource BusinessSource
+  businessSource BusinessSource @default(OTHER)
   value          Decimal?         @db.Decimal(18, 4)
   numerator      Decimal?         @db.Decimal(18, 4)
   denominator    Decimal?         @db.Decimal(18, 4)
@@ -368,7 +368,7 @@ model MerchantClassificationSnapshot {
   merchantId           String
   merchant             Merchant                @relation(fields: [merchantId], references: [id])
   dataDate             DateTime                @db.Date
-  businessSource       BusinessSource
+  businessSource       BusinessSource         @default(ALL)
   dataAvailable        Boolean                 @default(true)
   classification       MerchantClassification?
   suggested            MerchantClassification?
@@ -397,7 +397,7 @@ model RuleHit {
   projectId      String?
   project        Project?       @relation(fields: [projectId], references: [id])
   dataDate       DateTime       @db.Date
-  businessSource BusinessSource
+  businessSource BusinessSource @default(OTHER)
   status         RuleHitStatus  @default(ACTIVE)
   evidence       Json
   reason         String
@@ -406,7 +406,7 @@ model RuleHit {
   createdAt      DateTime       @default(now())
   resolvedAt     DateTime?
 
-  @@unique([code, entityType, entityId, dataDate, version, businessSource], map: "RuleHit_entity_date_version_source_key")
+  @@unique([code, entityType, entityId, dataDate, version, businessSource, sourceBatchId], map: "RuleHit_entity_date_version_source_key")
   @@index([merchantId, dataDate])
   @@index([projectId, dataDate])
 }
@@ -465,4 +465,3 @@ model Job {
   @@unique([type, sourceBatchId])
   @@index([status, availableAt])
 }
-

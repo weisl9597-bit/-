@@ -20,6 +20,7 @@ export type MerchantClassificationInput = {
   processMetric: number | null;
   cityProcessAverage: number | null;
   currentClassification: MerchantClassification | null;
+  manualClassification?: MerchantClassification | null;
   classificationSince: string | null;
   lastAssignedAt: string | null;
   cConfirmed: boolean;
@@ -84,6 +85,14 @@ export function classifyMerchant(input: MerchantClassificationInput): Classifica
     };
   }
 
+  if (input.manualClassification) {
+    return decision(
+      input,
+      input.manualClassification,
+      '人工分类生效中，自动规则仅更新证据，不覆盖人工结论。',
+    );
+  }
+
   if (input.permanentlyExcluded) {
     return decision(
       input,
@@ -141,4 +150,3 @@ export function classifyMerchant(input: MerchantClassificationInput): Classifica
   }
   return decision(input, 'A_RISK', `SOP达标率${percentage(input.sopRate)}或当月签约未满足A类条件。`);
 }
-

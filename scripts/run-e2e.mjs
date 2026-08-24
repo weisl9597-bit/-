@@ -5,6 +5,7 @@ const baseURL = 'http://127.0.0.1:3100';
 const environment = {
   ...process.env,
   E2E_BYPASS_AUTH: '1',
+  SOURCE_AWARE_OPERATIONS_ENABLED: 'true',
   DATABASE_URL: 'postgresql://designbao:designbao_local@127.0.0.1:5432/designbao',
   SESSION_SECRET: 'e2e-only-session-secret-at-least-32-characters',
   OBJECT_STORAGE_ENDPOINT: 'http://127.0.0.1:9000',
@@ -69,4 +70,3 @@ void main().catch((error) => {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;
 });
-

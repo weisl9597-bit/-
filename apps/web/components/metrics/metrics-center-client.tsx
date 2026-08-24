@@ -29,11 +29,13 @@ function defaultDates() {
 export type MetricsCenterClientProps = {
   operations?: OperationsFilterController;
   filterOptions?: OperationsFilterOptions;
+  sourceAwareEnabled?: boolean;
 };
 
 export function MetricsCenterClient({
   operations: suppliedOperations,
   filterOptions: suppliedFilterOptions,
+  sourceAwareEnabled = true,
 }: MetricsCenterClientProps) {
   const defaultOperations = useOperationsFilters();
   const operations = suppliedOperations ?? defaultOperations;
@@ -72,21 +74,23 @@ export function MetricsCenterClient({
   }, []);
 
   useEffect(() => {
-    if (suppliedFilterOptions) return;
+    if (!sourceAwareEnabled || suppliedFilterOptions) return;
     void fetch(`/api/filters/operations?source=${operations.value.source}`)
       .then(async (response) => {
         if (!response.ok) throw new Error('筛选项加载失败');
         setFilterOptions(await response.json() as OperationsFilterOptions);
       })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)));
-  }, [operations.value.source, suppliedFilterOptions]);
+  }, [operations.value.source, sourceAwareEnabled, suppliedFilterOptions]);
 
   useEffect(() => {
     if (!initialized) return;
     const local = {
       metricIds: selected.join(','), grain, start, end,
     };
-    const locationParams = operations.toSearchParams(local);
+    const locationParams = sourceAwareEnabled
+      ? operations.toSearchParams(local)
+      : new URLSearchParams({ ...local, source: operations.value.source });
     window.history.replaceState(null, '', `${window.location.pathname}?${locationParams.toString()}`);
     if (selected.length === 0) {
       setData({ series: [] });
@@ -94,13 +98,13 @@ export function MetricsCenterClient({
     }
     setLoading(true);
     setError(null);
-    const query = new URLSearchParams({
-      ...local,
-      source: operations.value.source,
-    });
-    const organizationId = operations.value.cityId || operations.value.regionId;
-    if (organizationId) query.set('organizationId', organizationId);
-    if (operations.value.merchantId) query.set('merchantId', operations.value.merchantId);
+    const query = new URLSearchParams(local);
+    query.set('source', operations.value.source);
+    if (sourceAwareEnabled) {
+      if (operations.value.regionId) query.set('regionId', operations.value.regionId);
+      if (operations.value.cityId) query.set('cityId', operations.value.cityId);
+      if (operations.value.merchantId) query.set('merchantId', operations.value.merchantId);
+    }
     void fetch(`/api/metrics?${query.toString()}`).then(async (response) => {
       if (!response.ok) throw new Error('指标数据加载失败');
       setData(await response.json() as MetricResponse);
@@ -113,6 +117,7 @@ export function MetricsCenterClient({
     grain,
     start,
     end,
+    sourceAwareEnabled,
     operations.value.source,
     operations.value.regionId,
     operations.value.cityId,
@@ -122,7 +127,13 @@ export function MetricsCenterClient({
   return (
     <div className="metrics-layout">
       <header className="page-heading"><div><p className="eyebrow">指标中心</p><h1>常用指标与自由组合分析</h1><p>可选择任意数量指标；1—8项显示趋势，9项以上切换为矩阵。</p></div></header>
-      {filterOptions && <OperationsFilterBar controller={operations} options={filterOptions} />}
+      {sourceAwareEnabled && filterOptions
+        ? <OperationsFilterBar controller={operations} options={filterOptions} />
+        : <section className="operations-filter-shell legacy-source-filter"><div className="operations-filter-bar">
+          <label><span>业务来源</span><select aria-label="业务来源" value={operations.value.source} onChange={(event) => operations.setSource(event.target.value as 'DESIGNBAO' | 'XIAOHONGSHU' | 'ALL')}>
+            <option value="DESIGNBAO">设计宝</option><option value="XIAOHONGSHU">小红书</option><option value="ALL">全部业务</option>
+          </select></label>
+        </div></section>}
       <section className="panel common-metrics">
         <div className="section-heading"><div><p className="eyebrow">常用入口</p><h2>常见指标</h2></div><div className="metric-time-tools"><label>开始<input type="date" value={start} onChange={(event) => setStart(event.target.value)} /></label><label>结束<input type="date" value={end} onChange={(event) => setEnd(event.target.value)} /></label><div className="segmented">{(['DAY', 'WEEK', 'MONTH'] as const).map((item) => <button className={grain === item ? 'active' : ''} key={item} onClick={() => setGrain(item)}>{item === 'DAY' ? '日' : item === 'WEEK' ? '周' : '月'}</button>)}</div></div></div>
         <div className="chip-row">{commonMetricIds.map((id) => { const metric = metricCatalog.find((item) => item.id === id)!; return <button key={id} className={selectedSet.has(id) ? 'chip selected' : 'chip'} onClick={() => toggle(id)}>{metric.name}</button>; })}</div>

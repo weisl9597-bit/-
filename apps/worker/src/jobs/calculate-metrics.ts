@@ -155,12 +155,13 @@ export async function runCalculateMetricsJob(input: {
   batchId: string;
   dataDate: string;
   repository?: MetricSnapshotRepository;
+  sourceAwareEnabled?: boolean;
 }): Promise<{ snapshotCount: number }> {
   const snapshotCount = await buildMetricSnapshots(
     input.dataDate,
     input.batchId,
     input.repository ?? prismaMetricSnapshotRepository,
+    { sourceAware: input.sourceAwareEnabled ?? process.env.SOURCE_AWARE_OPERATIONS_ENABLED === 'true' },
   );
   return { snapshotCount };
 }
-

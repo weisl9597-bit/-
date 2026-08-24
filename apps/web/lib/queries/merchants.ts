@@ -56,6 +56,49 @@ export type ResolveMerchantSelection = (
   scope: OrganizationScope,
 ) => Promise<OperationsSelection>;
 
+export type MerchantSopRateFact = {
+  merchantId: string | null;
+  businessSource: ActualBusinessSource;
+  periodStart: Date;
+  value: number | null;
+  numerator: number | null;
+  denominator: number | null;
+};
+
+export function aggregateLatestSopRates(
+  facts: MerchantSopRateFact[],
+): Map<string, number | null> {
+  const grouped = new Map<string, MerchantSopRateFact[]>();
+  for (const fact of facts) {
+    if (!fact.merchantId) continue;
+    const values = grouped.get(fact.merchantId) ?? [];
+    values.push(fact);
+    grouped.set(fact.merchantId, values);
+  }
+  const result = new Map<string, number | null>();
+  for (const [merchantId, values] of grouped) {
+    const latestTime = Math.max(...values.map((value) => value.periodStart.getTime()));
+    const latestBySource = new Map<ActualBusinessSource, MerchantSopRateFact>();
+    for (const value of values) {
+      if (value.periodStart.getTime() === latestTime && !latestBySource.has(value.businessSource)) {
+        latestBySource.set(value.businessSource, value);
+      }
+    }
+    const latest = [...latestBySource.values()];
+    const completeFacts = latest.every((value) => (
+      value.numerator !== null && value.denominator !== null
+    ));
+    if (!completeFacts) {
+      result.set(merchantId, latest.length === 1 ? latest[0]?.value ?? null : null);
+      continue;
+    }
+    const numerator = latest.reduce((sum, value) => sum + value.numerator!, 0);
+    const denominator = latest.reduce((sum, value) => sum + value.denominator!, 0);
+    result.set(merchantId, denominator === 0 ? null : (numerator / denominator) * 100);
+  }
+  return result;
+}
+
 function operationsFilter(query: MerchantListQuery): OperationsFilter {
   return {
     source: query.source ?? 'DESIGNBAO',
@@ -76,7 +119,9 @@ function actualSourceWhere(source: SelectableBusinessSource) {
 export const legacyMerchantListRepository: LegacyMerchantListRepository = {
   async list(query) {
     const latestClassificationDate = query.classification
-      ? (await db.merchantClassificationSnapshot.aggregate({ _max: { dataDate: true } }))._max.dataDate
+      ? (await db.merchantClassificationSnapshot.aggregate({
+        where: { businessSource: 'ALL' }, _max: { dataDate: true },
+      }))._max.dataDate
       : null;
     const rows = await db.merchant.findMany({
       where: {
@@ -85,13 +130,19 @@ export const legacyMerchantListRepository: LegacyMerchantListRepository = {
         organizationId: query.organizationIds ? { in: query.organizationIds } : undefined,
         name: query.search ? { contains: query.search, mode: 'insensitive' } : undefined,
         classificationSnapshots: query.classification
-          ? { some: { classification: query.classification, dataDate: latestClassificationDate ?? undefined } }
+          ? { some: {
+            classification: query.classification,
+            dataDate: latestClassificationDate ?? undefined,
+            businessSource: 'ALL',
+          } }
           : undefined,
       },
       orderBy: { id: 'asc' },
       take: query.limit + 1,
       include: {
-        classificationSnapshots: { orderBy: { dataDate: 'desc' }, take: 1 },
+        classificationSnapshots: {
+          where: { businessSource: 'ALL' }, orderBy: { dataDate: 'desc' }, take: 1,
+        },
         projects: { orderBy: { assignedAt: 'desc' }, take: 1, select: { assignedAt: true } },
         metricSnapshots: {
           where: { metricId: 'merchant_sop_compliance_rate', grain: 'DAY' },
@@ -179,10 +230,13 @@ export const prismaMerchantListRepository: MerchantListRepository = {
           metricId: 'merchant_sop_compliance_rate',
           grain: 'DAY',
           merchantId: { in: merchantIds },
-          businessSource: query.selection.source,
+          businessSource: actualSourceWhere(query.selection.source),
         },
         orderBy: [{ merchantId: 'asc' }, { periodStart: 'desc' }, { createdAt: 'desc' }],
-        select: { merchantId: true, value: true },
+        select: {
+          merchantId: true, businessSource: true, periodStart: true,
+          value: true, numerator: true, denominator: true,
+        },
       }),
     ]);
     const classifications = new Map<string, {
@@ -196,12 +250,18 @@ export const prismaMerchantListRepository: MerchantListRepository = {
         });
       }
     }
-    const sopRates = new Map<string, number | null>();
-    for (const row of metricRows) {
-      if (row.merchantId && !sopRates.has(row.merchantId)) {
-        sopRates.set(row.merchantId, row.value?.toNumber() ?? null);
-      }
-    }
+    const sopRates = aggregateLatestSopRates(metricRows.flatMap((row) => (
+      row.businessSource === 'DESIGNBAO' || row.businessSource === 'XIAOHONGSHU'
+        ? [{
+          merchantId: row.merchantId,
+          businessSource: row.businessSource,
+          periodStart: row.periodStart,
+          value: row.value?.toNumber() ?? null,
+          numerator: row.numerator?.toNumber() ?? null,
+          denominator: row.denominator?.toNumber() ?? null,
+        }]
+        : []
+    )));
     let items = merchantIds.map((id): MerchantListItem => {
       const merchant = grouped.get(id)!;
       const classification = classifications.get(id);
@@ -312,7 +372,7 @@ export const prismaMerchantDetailRepository: MerchantDetailRepository = {
         dataAvailable: false, reason: '该来源暂无数据', sopRate: null, projects: [],
       };
     }
-    const [projects, classification, metric] = await Promise.all([
+    const [projects, classification, metricRows] = await Promise.all([
       db.projectSnapshot.findMany({
         where: {
           uploadBatchId: batch.id,
@@ -333,26 +393,41 @@ export const prismaMerchantDetailRepository: MerchantDetailRepository = {
         orderBy: [{ dataDate: 'desc' }, { createdAt: 'desc' }],
         select: { classification: true, dataAvailable: true, reason: true },
       }),
-      db.metricSnapshot.findFirst({
+      db.metricSnapshot.findMany({
         where: {
           sourceBatchId: batch.id,
           merchantId: id,
           metricId: 'merchant_sop_compliance_rate',
           grain: 'DAY',
-          businessSource: selection.source,
+          businessSource: actualSourceWhere(selection.source),
         },
         orderBy: [{ periodStart: 'desc' }, { createdAt: 'desc' }],
-        select: { value: true },
+        select: {
+          merchantId: true, businessSource: true, periodStart: true,
+          value: true, numerator: true, denominator: true,
+        },
       }),
     ]);
     const dataAvailable = classification?.dataAvailable ?? projects.length > 0;
+    const sopRates = aggregateLatestSopRates(metricRows.flatMap((row) => (
+      row.businessSource === 'DESIGNBAO' || row.businessSource === 'XIAOHONGSHU'
+        ? [{
+          merchantId: row.merchantId,
+          businessSource: row.businessSource,
+          periodStart: row.periodStart,
+          value: row.value?.toNumber() ?? null,
+          numerator: row.numerator?.toNumber() ?? null,
+          denominator: row.denominator?.toNumber() ?? null,
+        }]
+        : []
+    )));
     return {
       ...merchant,
       source: selection.source,
       classification: classification?.classification ?? null,
       dataAvailable,
       reason: classification?.reason ?? (dataAvailable ? '暂无正式分类原因' : '该来源暂无数据'),
-      sopRate: metric?.value?.toNumber() ?? null,
+      sopRate: sopRates.get(id) ?? null,
       projects: projects.flatMap((project) => (
         project.businessSource === 'DESIGNBAO' || project.businessSource === 'XIAOHONGSHU'
           ? [{
@@ -378,6 +453,18 @@ export async function getMerchantDetail(
 }
 
 export async function getLegacyMerchantDetail(id: string, scope: OrganizationScope) {
+  const [metricBatch, ruleBatch] = await Promise.all([
+    db.metricSnapshot.findFirst({
+      where: { merchantId: id, sourceBatch: { status: 'SUCCEEDED' } },
+      orderBy: [{ sourceBatch: { createdAt: 'desc' } }, { createdAt: 'desc' }],
+      select: { sourceBatchId: true },
+    }),
+    db.ruleHit.findFirst({
+      where: { merchantId: id, sourceBatch: { status: 'SUCCEEDED' } },
+      orderBy: [{ sourceBatch: { createdAt: 'desc' } }, { createdAt: 'desc' }],
+      select: { sourceBatchId: true },
+    }),
+  ]);
   return db.merchant.findFirst({
     where: {
       id,
@@ -385,11 +472,26 @@ export async function getLegacyMerchantDetail(id: string, scope: OrganizationSco
     },
     include: {
       organization: true,
-      classificationSnapshots: { orderBy: { dataDate: 'desc' }, take: 20 },
+      classificationSnapshots: {
+        where: { businessSource: 'ALL' }, orderBy: { dataDate: 'desc' }, take: 20,
+      },
       projects: { orderBy: { assignedAt: 'desc' }, take: 50 },
-      metricSnapshots: { orderBy: { periodStart: 'desc' }, take: 200 },
-      ruleHits: { orderBy: { dataDate: 'desc' }, take: 50 },
+      metricSnapshots: {
+        where: metricBatch ? {
+          sourceBatchId: metricBatch.sourceBatchId,
+          businessSource: { in: ['OTHER', 'DESIGNBAO', 'XIAOHONGSHU'] },
+        } : { id: { in: [] } },
+        orderBy: [{ periodStart: 'desc' }, { businessSource: 'asc' }, { createdAt: 'desc' }],
+        take: 200,
+      },
+      ruleHits: {
+        where: ruleBatch ? {
+          sourceBatchId: ruleBatch.sourceBatchId,
+          businessSource: { in: ['OTHER', 'DESIGNBAO', 'XIAOHONGSHU'] },
+        } : { id: { in: [] } },
+        orderBy: [{ dataDate: 'desc' }, { businessSource: 'asc' }, { createdAt: 'desc' }],
+        take: 50,
+      },
     },
   });
 }
-

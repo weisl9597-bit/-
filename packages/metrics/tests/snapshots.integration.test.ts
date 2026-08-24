@@ -81,6 +81,30 @@ describe('metric snapshots', () => {
     });
   });
 
+  it('keeps source-prefixed dimensions during the expand-only rollout phase', async () => {
+    const saved: Array<Record<string, unknown>> = [];
+    const repository: MetricSnapshotRepository = {
+      loadRows: async () => [{
+        assignmentId: 'P1::M1', sourceProjectId: 'P1', organizationIds: ['city-1'],
+        merchantId: 'M1', dataDate: '2026-08-21', businessSource: 'XIAOHONGSHU',
+        followWithin30m: true, needsAnalyzed: true, hardInvite: false, coached: null,
+        raw: { T: '是' },
+      }],
+      syncDefinitions: async () => undefined,
+      deleteSnapshots: async () => undefined,
+      insertSnapshots: async (snapshots) => { saved.push(...snapshots); return snapshots.length; },
+    };
+
+    await buildMetricSnapshots('2026-08-21', 'batch-expand', repository, { sourceAware: false });
+
+    expect(saved).toContainEqual(expect.objectContaining({
+      businessSource: 'XIAOHONGSHU', dimensionKey: 'source:XIAOHONGSHU|organization',
+    }));
+    expect(saved).toContainEqual(expect.objectContaining({
+      businessSource: 'XIAOHONGSHU', dimensionKey: 'source:XIAOHONGSHU|merchant:M1',
+    }));
+  });
+
   it('writes large metric results in bounded batches', async () => {
     const batchSizes: number[] = [];
     const rows: MetricRow[] = Array.from({ length: 4 }, (_, index) => ({
@@ -117,4 +141,3 @@ describe('metric snapshots', () => {
     expect(Math.max(...batchSizes)).toBeLessThanOrEqual(500);
   });
 });
-

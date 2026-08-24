@@ -45,4 +45,28 @@ describe('metrics center UI', () => {
     expect(html).toContain('operations-filter-bar');
     expect(html).not.toContain('metric-filter-bar');
   });
+
+  it('keeps the legacy source selector but hides new organization filters while rollout is off', () => {
+    const current = { source: 'DESIGNBAO' as const };
+    const operations = createOperationsFilterController(
+      () => current,
+      () => undefined,
+      () => undefined,
+    );
+    const html = renderToStaticMarkup(createElement(MetricsCenterClient, {
+      operations,
+      sourceAwareEnabled: false,
+      filterOptions: {
+        enabled: false,
+        regions: [{ id: 'region-1', name: '华南大区' }],
+        cities: [], merchants: [],
+        rebuildStatus: { state: 'IDLE', total: 0, completed: 0, failed: 0, lastSuccessfulDate: null },
+      },
+    }));
+    expect(html).toContain('legacy-source-filter');
+    expect((html.match(/aria-label="业务来源"/g) ?? [])).toHaveLength(1);
+    expect(html).not.toContain('aria-label="大区"');
+    expect(html).not.toContain('aria-label="城市"');
+    expect(html).not.toContain('aria-label="商家"');
+  });
 });

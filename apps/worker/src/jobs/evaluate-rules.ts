@@ -6,6 +6,7 @@ import {
   type RuleEvaluationRepository,
 } from '@designbao/rules/evaluate';
 import type { MerchantClassificationInput } from '@designbao/rules/merchant-classification';
+import type { ClassificationDecision } from '@designbao/rules/merchant-classification';
 import type { Prisma } from '@prisma/client';
 
 function dateOnly(value: string): Date {
@@ -43,6 +44,65 @@ type SourceScopedOverride = {
   endDate: Date | null;
 };
 
+export type HistoricalAssignment = {
+  batchId: string;
+  projectId: string;
+  merchantId: string;
+  businessSource: ActualBusinessSource;
+  dataDate: Date;
+  assignedAt: Date;
+  batchStatus: string;
+  batchCreatedAt: Date;
+};
+
+export type HistoricalUploadBatch = {
+  batchId: string;
+  dataDate: Date;
+  batchStatus: string;
+  batchCreatedAt: Date;
+};
+
+export function latestHistoricalBatchIds(
+  batches: readonly HistoricalUploadBatch[],
+  asOf: Date,
+): string[] {
+  const latestBatchByDate = new Map<string, string>();
+  const eligibleBatches = batches
+    .filter((batch) => batch.batchStatus === 'SUCCEEDED' && batch.dataDate <= asOf)
+    .sort((left, right) => (
+      right.batchCreatedAt.getTime() - left.batchCreatedAt.getTime()
+      || right.batchId.localeCompare(left.batchId)
+    ));
+
+  for (const batch of eligibleBatches) {
+    const date = dateString(batch.dataDate);
+    if (!latestBatchByDate.has(date)) latestBatchByDate.set(date, batch.batchId);
+  }
+
+  return [...latestBatchByDate.values()];
+}
+
+export function selectHistoricalAssignments(
+  rows: readonly HistoricalAssignment[],
+  asOf: Date,
+  batches: readonly HistoricalUploadBatch[] = rows.map((row) => ({
+    batchId: row.batchId,
+    dataDate: row.dataDate,
+    batchStatus: row.batchStatus,
+    batchCreatedAt: row.batchCreatedAt,
+  })),
+): HistoricalAssignment[] {
+  const nextDay = new Date(asOf);
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  const selectedBatchIds = new Set(latestHistoricalBatchIds(batches, asOf));
+  return rows.filter((row) => (
+    row.batchStatus === 'SUCCEEDED'
+    && row.dataDate <= asOf
+    && row.assignedAt < nextDay
+    && selectedBatchIds.has(row.batchId)
+  ));
+}
+
 export function sourceScopedOverrideState(
   overrides: readonly SourceScopedOverride[],
   businessSource: SelectableBusinessSource,
@@ -66,6 +126,15 @@ export function sourceScopedOverrideState(
     manualClassification: manual?.classification ?? null,
     manualClassificationSince: manual?.startDate ? dateString(manual.startDate) : null,
   };
+}
+
+export function decisionsForRollout(
+  decisions: readonly ClassificationDecision[],
+  sourceAwareEnabled: boolean,
+): ClassificationDecision[] {
+  return sourceAwareEnabled
+    ? [...decisions]
+    : decisions.filter((decision) => decision.businessSource === 'ALL');
 }
 
 function aggregateRate(rows: DailyMetric[]): number | null {
@@ -114,8 +183,10 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
     const lookback = new Date(currentDate);
     lookback.setUTCDate(lookback.getUTCDate() - 27);
     const monthStart = new Date(Date.UTC(currentDate.getUTCFullYear(), currentDate.getUTCMonth(), 1));
+    const nextDate = new Date(currentDate);
+    nextDate.setUTCDate(nextDate.getUTCDate() + 1);
 
-    const [metrics, classifications, overrides, lastAssignments] = await Promise.all([
+    const [metrics, classifications, overrides, historicalBatches] = await Promise.all([
       db.metricSnapshot.findMany({
         where: {
           sourceBatchId: batchId,
@@ -139,11 +210,50 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
           OR: [{ endDate: null }, { endDate: { gte: currentDate } }],
         },
       }),
-      db.projectSnapshot.findMany({
-        where: { merchantId: { in: merchantIds }, businessSource: { in: ['DESIGNBAO', 'XIAOHONGSHU'] } },
-        select: { merchantId: true, businessSource: true, assignedAt: true },
+      db.uploadBatch.findMany({
+        where: {
+          dataDate: { lte: currentDate },
+          status: 'SUCCEEDED',
+        },
+        select: {
+          id: true, dataDate: true, status: true, createdAt: true,
+        },
       }),
     ]);
+    const batchFacts: HistoricalUploadBatch[] = historicalBatches.map((batch) => ({
+      batchId: batch.id,
+      dataDate: batch.dataDate,
+      batchStatus: batch.status,
+      batchCreatedAt: batch.createdAt,
+    }));
+    const selectedBatchIds = latestHistoricalBatchIds(batchFacts, currentDate);
+    const lastAssignmentRows = selectedBatchIds.length === 0 ? [] : await db.projectSnapshot.findMany({
+      where: {
+        uploadBatchId: { in: selectedBatchIds },
+        merchantId: { in: merchantIds },
+        businessSource: { in: ['DESIGNBAO', 'XIAOHONGSHU'] },
+        assignedAt: { lt: nextDate },
+      },
+      select: {
+        projectId: true, merchantId: true, businessSource: true,
+        dataDate: true, assignedAt: true,
+        uploadBatch: { select: { id: true, status: true, createdAt: true } },
+      },
+    });
+    const lastAssignments = selectHistoricalAssignments(lastAssignmentRows.flatMap((row) => (
+      row.businessSource === 'DESIGNBAO' || row.businessSource === 'XIAOHONGSHU'
+        ? [{
+          batchId: row.uploadBatch.id,
+          projectId: row.projectId,
+          merchantId: row.merchantId,
+          businessSource: row.businessSource,
+          dataDate: row.dataDate,
+          assignedAt: row.assignedAt,
+          batchStatus: row.uploadBatch.status,
+          batchCreatedAt: row.uploadBatch.createdAt,
+        }]
+        : []
+    )), currentDate, batchFacts);
 
     const latestClassification = new Map<string, (typeof classifications)[number]>();
     for (const classification of classifications) {
@@ -206,7 +316,8 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
         weeklySopRates: weeklyRates(sopRows),
         processMetric: aggregateRate(processRows),
         cityProcessAverage: aggregateRate(cityRows),
-        currentClassification: overrideState.manualClassification ?? current?.classification ?? null,
+        currentClassification: current?.classification ?? null,
+        manualClassification: overrideState.manualClassification,
         classificationSince: overrideState.manualClassificationSince
           ?? (current ? dateString(current.effectiveAt) : null),
         lastAssignedAt: assignedAt ? dateString(assignedAt) : null,
@@ -263,7 +374,7 @@ export const prismaRuleEvaluationRepository: RuleEvaluationRepository = {
         await transaction.merchantClassificationSnapshot.upsert({
           where,
           create: row,
-          update: existing?.confirmedById ? {
+          update: existing?.confirmedById && row.dataAvailable ? {
             suggested: row.suggested,
             reason: row.reason,
             evidence: row.evidence,
@@ -280,11 +391,20 @@ export async function runEvaluateRulesJob(input: {
   batchId: string;
   dataDate: string;
   repository?: RuleEvaluationRepository;
+  sourceAwareEnabled?: boolean;
 }): Promise<{ projectAlertCount: number; merchantDecisionCount: number }> {
+  const repository = input.repository ?? prismaRuleEvaluationRepository;
+  const sourceAwareEnabled = input.sourceAwareEnabled
+    ?? process.env.SOURCE_AWARE_OPERATIONS_ENABLED === 'true';
   return evaluateRules(
     input.dataDate,
     input.batchId,
-    input.repository ?? prismaRuleEvaluationRepository,
+    sourceAwareEnabled ? repository : {
+      ...repository,
+      persist: (payload) => repository.persist({
+        ...payload,
+        decisions: decisionsForRollout(payload.decisions, false),
+      }),
+    },
   );
 }
-

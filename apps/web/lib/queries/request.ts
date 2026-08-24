@@ -30,15 +30,13 @@ export function parseMetricRequest(url: URL): MetricCenterQuery {
   const defaultEnd = today.toISOString().slice(0, 10);
   const defaultStartDate = new Date(today);
   defaultStartDate.setUTCDate(defaultStartDate.getUTCDate() - 29);
+  const operations = parseOperationsFilter(url);
   return {
+    ...operations,
     metricIds: ids,
     grain: z.enum(['DAY', 'WEEK', 'MONTH']).parse(url.searchParams.get('grain') ?? 'DAY'),
     start: date.parse(url.searchParams.get('start') ?? defaultStartDate.toISOString().slice(0, 10)),
     end: date.parse(url.searchParams.get('end') ?? defaultEnd),
-    merchantId: url.searchParams.get('merchantId') || undefined,
-    organizationId: url.searchParams.get('organizationId') || undefined,
-    source: z.enum(['DESIGNBAO', 'XIAOHONGSHU', 'ALL'])
-      .parse(url.searchParams.get('source') ?? 'DESIGNBAO'),
   };
 }
 
@@ -68,4 +66,3 @@ export function parseProjectRequest(url: URL): ProjectListQuery {
     improved: triState(url.searchParams.get('improved')),
   };
 }
-

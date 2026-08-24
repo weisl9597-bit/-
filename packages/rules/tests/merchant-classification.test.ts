@@ -68,5 +68,17 @@ describe('merchant classification', () => {
       temporaryExemptUntil: '2026-08-31', currentClassification: 'A',
     }))).toMatchObject({ suggested: 'A_RISK', requiresConfirmation: false });
   });
-});
 
+  it('keeps an active manual classification authoritative over automatic lifecycle rules', () => {
+    expect(classifyMerchant(input({
+      manualClassification: 'B',
+      sopRate: 90,
+      signedThisMonth: true,
+      lastAssignedAt: '2026-07-01',
+    }))).toMatchObject({
+      suggested: 'B',
+      requiresConfirmation: false,
+      reason: '人工分类生效中，自动规则仅更新证据，不覆盖人工结论。',
+    });
+  });
+});

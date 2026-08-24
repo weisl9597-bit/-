@@ -58,19 +58,19 @@ BACKUP_SHA256=<记录的哈希> pnpm tsx infra/backup/verify-backup.ts designbao
 这是一次“先写入、后切换查询”的渐进上线。必须严格按以下顺序执行：
 
 1. 备份 Railway PostgreSQL，并记录备份时间与校验结果。
-2. 在 Web 服务设置 `SOURCE_AWARE_OPERATIONS_ENABLED=false`。
-3. 部署包含增量迁移及来源写入逻辑的同一版 Web、Worker。
-4. 确认首页、指标中心、商家中心、项目中心仍走旧查询路径且可正常使用。
-5. 在 Railway 一次性 Shell 中只运行一次 `pnpm rebuild:business-source`，不要重新上传 Excel。
-6. 等待重建状态满足 `completed = total` 且 `failed = 0`；未满足时不要打开新查询。
-7. 用来源感知验收查询确认：设计宝在 `2026-08-01..2026-08-23` 的“分派项目数”为 `561`。
-8. 分别在设计宝、小红书、全部业务中抽查至少三个装企，并核对项目、指标和分类。
-9. 将 Web 的 `SOURCE_AWARE_OPERATIONS_ENABLED` 改为 `true`，只重新部署 Web。
-10. 再次检查四个中心，并保留上一版 Web 部署作为快速回滚点。
+2. 在 Web 和 Worker 两个服务都设置 `SOURCE_AWARE_OPERATIONS_ENABLED=false`。
+3. 第一次发布只部署扩展迁移 `20260823_business_source_operations` 及兼容写入逻辑；这一阶段保留三个旧唯一索引。
+4. 等 Web、Worker 都显示同一提交且 Online，并确认上一版容器已停止；确认四个中心仍保留原来源筛选和旧查询口径。
+5. 把 `packages/db/prisma/contract/20260824_finalize_business_source_operations.sql` 作为一个**新的、独立的 Prisma migration** 提交并进行第二次发布。禁止把扩展迁移和收缩迁移放进同一次 Railway 发布。
+6. 等第二次发布的 Web、Worker 都为 Online 后，只把 Worker 的 `SOURCE_AWARE_OPERATIONS_ENABLED` 改为 `true` 并重新部署 Worker；Web 继续保持 `false`。确认旧 Worker 已全部退出。
+7. 在 Railway 一次性 Shell 中只运行一次 `pnpm rebuild:business-source`，不要重新上传 Excel；等待重建状态满足 `completed = total` 且 `failed = 0`。
+8. 用后台验收查询确认：设计宝在 `2026-08-01..2026-08-23` 的“分派项目数”为 `561`，并确认 DESIGNBAO、XIAOHONGSHU、ALL 三类商家分类均已生成。
+9. 分别在设计宝、小红书、全部业务中抽查至少三个装企，并核对项目、指标和分类；未通过时 Web 仍保持旧查询，不影响使用。
+10. 验收通过后，将 Web 的 `SOURCE_AWARE_OPERATIONS_ENABLED` 改为 `true` 并只重新部署 Web；再次检查四个中心，并保留上一版部署作为快速回滚点。
 
 最终验收还必须确认 `/api/health` 返回 HTTP 200，Web、Worker、PostgreSQL 均为 Online；项目中心的“装企”列显示装企名称，商家 ID 以小字显示在名称下方。
 
-若任何来源验收失败，立即把 Web 的 `SOURCE_AWARE_OPERATIONS_ENABLED` 改回 `false` 并重新部署 Web。增量迁移和来源字段保留，不执行数据库向下迁移；用户继续看到上一条稳定查询路径的数据。
+若任何来源验收失败，立即把 Web 和 Worker 的 `SOURCE_AWARE_OPERATIONS_ENABLED` 改回 `false` 并重新部署。增量迁移和来源字段保留，不执行数据库向下迁移；用户继续看到上一条稳定查询路径的数据。
 
 ## 应用回滚
 
