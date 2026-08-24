@@ -17,6 +17,7 @@ export type DashboardFacts = {
   projects: Array<{
     projectId: string;
     merchantId: string;
+    assignedAt: string;
     needsCoaching: boolean | null;
     coached: boolean | null;
     improved: boolean | null;
@@ -67,7 +68,8 @@ export const legacyDashboardRepository: LegacyDashboardRepository = {
       db.projectSnapshot.findMany({
         where: { uploadBatchId: batch.id, organizationId },
         select: {
-          projectId: true, merchantId: true, needsCoaching: true, coached: true, improved: true,
+          projectId: true, merchantId: true, assignedAt: true,
+          needsCoaching: true, coached: true, improved: true,
         },
       }),
     ]);
@@ -83,7 +85,9 @@ export const legacyDashboardRepository: LegacyDashboardRepository = {
       classifications: [...latestByMerchant].map(([merchantId, classification]) => ({
         merchantId, classification,
       })),
-      projects,
+      projects: projects.map((project) => ({
+        ...project, assignedAt: project.assignedAt.toISOString(),
+      })),
     };
   },
 };
@@ -108,7 +112,8 @@ export const prismaDashboardRepository: DashboardRepository = {
           : selection.source,
       },
       select: {
-        projectId: true, merchantId: true, needsCoaching: true, coached: true, improved: true,
+        projectId: true, merchantId: true, assignedAt: true,
+        needsCoaching: true, coached: true, improved: true,
       },
     });
     const merchantIds = [...new Set(projects.map((project) => project.merchantId))];
@@ -135,15 +140,32 @@ export const prismaDashboardRepository: DashboardRepository = {
       classifications: [...latestByMerchant].map(([merchantId, classification]) => ({
         merchantId, classification,
       })),
-      projects,
+      projects: projects.map((project) => ({
+        ...project, assignedAt: project.assignedAt.toISOString(),
+      })),
     };
   },
 };
 
+function projectsAssignedWithinLatest72Hours(facts: DashboardFacts) {
+  if (!facts.dataDate) return [];
+  const endExclusive = new Date(`${facts.dataDate}T00:00:00.000Z`);
+  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+  const startInclusive = new Date(endExclusive);
+  startInclusive.setUTCDate(startInclusive.getUTCDate() - 3);
+  return facts.projects.filter((project) => {
+    const assignedAt = new Date(project.assignedAt);
+    return !Number.isNaN(assignedAt.getTime())
+      && assignedAt >= startInclusive
+      && assignedAt < endExclusive;
+  });
+}
+
 function buildDashboard(facts: DashboardFacts, source: SelectableBusinessSource) {
-  const coaching = facts.projects.filter((project) => project.needsCoaching === true && project.coached === null);
-  const improvement = facts.projects.filter((project) => project.improved === false);
-  const projects = facts.projects.filter((project) =>
+  const recentProjects = projectsAssignedWithinLatest72Hours(facts);
+  const coaching = recentProjects.filter((project) => project.needsCoaching === true && project.coached === null);
+  const improvement = recentProjects.filter((project) => project.improved === false);
+  const projects = recentProjects.filter((project) =>
     project.needsCoaching === true || project.improved === false || project.coached === null,
   );
   const merchantStructure = facts.classifications.reduce<Record<DashboardClassification, number>>(

@@ -69,4 +69,28 @@ describe('metrics center UI', () => {
     expect(html).not.toContain('aria-label="城市"');
     expect(html).not.toContain('aria-label="商家"');
   });
+
+  it('uses runtime filter status instead of a stale build-time rollout flag', () => {
+    const current = { source: 'DESIGNBAO' as const };
+    const operations = createOperationsFilterController(
+      () => current,
+      () => undefined,
+      () => undefined,
+    );
+    const html = renderToStaticMarkup(createElement(MetricsCenterClient, {
+      operations,
+      sourceAwareEnabled: false,
+      filterOptions: {
+        enabled: true,
+        regions: [{ id: 'region-1', name: '北京大区' }],
+        cities: [{ id: 'city-1', name: '北京市', parentId: 'region-1' }],
+        merchants: [{ id: 'M1', name: '示例装企', organizationId: 'city-1' }],
+        rebuildStatus: { state: 'IDLE', total: 1, completed: 1, failed: 0, lastSuccessfulDate: '2026-08-23' },
+      },
+    }));
+    expect(html).toContain('aria-label="大区"');
+    expect(html).toContain('aria-label="城市"');
+    expect(html).toContain('aria-label="商家"');
+    expect(html).not.toContain('legacy-source-filter');
+  });
 });

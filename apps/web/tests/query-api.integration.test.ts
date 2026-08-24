@@ -11,6 +11,7 @@ import type { OperationsFilter } from '../lib/queries/operations-filters';
 import {
   getMetricCenterData,
   getMetricCenterDataForRollout,
+  selectLatestMetricFacts,
   selectLegacyMetricFacts,
 } from '../lib/queries/metrics';
 import {
@@ -54,7 +55,10 @@ describe('organization-scoped query contracts', () => {
             { merchantId: 'M3', classification: 'C_CANDIDATE' },
           ],
           projects: [
-            { projectId: 'P1::M2', merchantId: 'M2', needsCoaching: true, coached: null, improved: false },
+            {
+              projectId: 'P1::M2', merchantId: 'M2', assignedAt: '2026-08-21T00:00:00.000Z',
+              needsCoaching: true, coached: null, improved: false,
+            },
           ],
         };
       },
@@ -76,6 +80,46 @@ describe('organization-scoped query contracts', () => {
     });
     expect(receivedSelection).toMatchObject({
       source: 'XIAOHONGSHU', organizationIds: ['city-1'],
+    });
+  });
+
+  it('limits homepage alerts to the latest 72-hour assignment window', async () => {
+    const repository: DashboardRepository = {
+      async load() {
+        return {
+          dataDate: '2026-08-23', merchantTotal: 4, classifications: [],
+          projects: [
+            {
+              projectId: 'inside-start', merchantId: 'M1', assignedAt: '2026-08-21T00:00:00.000Z',
+              needsCoaching: true, coached: null, improved: false,
+            },
+            {
+              projectId: 'inside-end', merchantId: 'M2', assignedAt: '2026-08-23T23:59:59.000Z',
+              needsCoaching: false, coached: null, improved: false,
+            },
+            {
+              projectId: 'too-old', merchantId: 'M3', assignedAt: '2026-08-20T23:59:59.000Z',
+              needsCoaching: true, coached: null, improved: false,
+            },
+            {
+              projectId: 'future', merchantId: 'M4', assignedAt: '2026-08-24T00:00:00.000Z',
+              needsCoaching: true, coached: null, improved: false,
+            },
+          ],
+        };
+      },
+    };
+
+    await expect(getDashboard(
+      { source: 'DESIGNBAO', cityId: 'city-1' }, cityScope, repository,
+      async () => ({ source: 'DESIGNBAO', cityId: 'city-1', organizationIds: ['city-1'] }),
+    )).resolves.toMatchObject({
+      summary: { merchantTotal: 4, abnormalProjects: 2, coachingDue: 1, unimproved: 2 },
+      alerts: {
+        coaching: [{ projectId: 'inside-start' }],
+        improvement: [{ projectId: 'inside-start' }, { projectId: 'inside-end' }],
+        projects: [{ projectId: 'inside-start' }, { projectId: 'inside-end' }],
+      },
     });
   });
 
@@ -369,6 +413,30 @@ describe('organization-scoped query contracts', () => {
     expect(facts.map(({ row, businessSource }) => [businessSource, row.value])).toEqual([
       ['DESIGNBAO', 587], ['XIAOHONGSHU', 26],
     ]);
+  });
+
+  it('does not add legacy and rebuilt metric snapshots for the same logical fact', () => {
+    const common = {
+      metricId: 'dispatch_project_count', periodStart: new Date('2026-08-21'),
+      organizationId: 'national', merchantId: null, createdAt: new Date('2026-08-24T10:00:00Z'),
+    };
+    const facts = selectLatestMetricFacts([
+      {
+        ...common, dimensionKey: 'source:DESIGNBAO|organization', businessSource: 'DESIGNBAO' as const,
+        sourceBatchId: 'legacy', sourceBatch: { createdAt: new Date('2026-08-23T10:00:00Z') }, value: 317,
+      },
+      {
+        ...common, dimensionKey: 'organization', businessSource: 'DESIGNBAO' as const,
+        sourceBatchId: 'rebuilt', sourceBatch: { createdAt: new Date('2026-08-24T10:00:00Z') }, value: 561,
+      },
+      {
+        ...common, dimensionKey: 'organization', businessSource: 'XIAOHONGSHU' as const,
+        sourceBatchId: 'xhs', sourceBatch: { createdAt: new Date('2026-08-24T10:00:00Z') }, value: 25,
+      },
+    ], 'DESIGNBAO');
+
+    expect(facts).toHaveLength(1);
+    expect(facts[0]).toMatchObject({ businessSource: 'DESIGNBAO', row: { value: 561 } });
   });
 
   it('uses cursor pagination and caps the page size at 200', async () => {

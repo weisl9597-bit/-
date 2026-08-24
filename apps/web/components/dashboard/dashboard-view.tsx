@@ -61,7 +61,7 @@ export function DashboardView({
         ))}
       </section>
       <section className="panel attention-panel">
-        <div className="section-heading"><div><p className="eyebrow">今日关注</p><h2>异常处理入口</h2></div></div>
+        <div className="section-heading"><div><p className="eyebrow">今日关注 · 近72小时内分派项目</p><h2>异常处理入口</h2></div></div>
         <div className="attention-grid">
           <Link href={href('/projects', { coached: 'blank' })} className="attention-card warning">
             <span>辅导执行异常</span><strong>{data.alerts.coaching.length}</strong><p>应辅导但辅导结果为空</p>

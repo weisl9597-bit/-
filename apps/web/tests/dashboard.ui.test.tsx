@@ -38,6 +38,7 @@ describe('dashboard UI', () => {
     expect(html).toContain('cityId=city-1');
     expect(html).toContain('abnormal=true');
     expect(html).toContain('数据更新至 2026-08-21（小红书）');
+    expect(html).toContain('近72小时内分派项目');
     expect(html).toContain('历史数据正在重建');
     expect(html).toContain('商家结构');
   });

@@ -46,6 +46,7 @@ export function MetricsCenterClient({
   const [start, setStart] = useState(dates.start);
   const [end, setEnd] = useState(dates.end);
   const [filterOptions, setFilterOptions] = useState<OperationsFilterOptions | null>(suppliedFilterOptions ?? null);
+  const effectiveSourceAwareEnabled = filterOptions?.enabled ?? sourceAwareEnabled;
   const [initialized, setInitialized] = useState(false);
   const [data, setData] = useState<MetricResponse>({ series: [] });
   const [loading, setLoading] = useState(false);
@@ -74,21 +75,21 @@ export function MetricsCenterClient({
   }, []);
 
   useEffect(() => {
-    if (!sourceAwareEnabled || suppliedFilterOptions) return;
+    if (suppliedFilterOptions) return;
     void fetch(`/api/filters/operations?source=${operations.value.source}`)
       .then(async (response) => {
         if (!response.ok) throw new Error('筛选项加载失败');
         setFilterOptions(await response.json() as OperationsFilterOptions);
       })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)));
-  }, [operations.value.source, sourceAwareEnabled, suppliedFilterOptions]);
+  }, [operations.value.source, suppliedFilterOptions]);
 
   useEffect(() => {
     if (!initialized) return;
     const local = {
       metricIds: selected.join(','), grain, start, end,
     };
-    const locationParams = sourceAwareEnabled
+    const locationParams = effectiveSourceAwareEnabled
       ? operations.toSearchParams(local)
       : new URLSearchParams({ ...local, source: operations.value.source });
     window.history.replaceState(null, '', `${window.location.pathname}?${locationParams.toString()}`);
@@ -100,7 +101,7 @@ export function MetricsCenterClient({
     setError(null);
     const query = new URLSearchParams(local);
     query.set('source', operations.value.source);
-    if (sourceAwareEnabled) {
+    if (effectiveSourceAwareEnabled) {
       if (operations.value.regionId) query.set('regionId', operations.value.regionId);
       if (operations.value.cityId) query.set('cityId', operations.value.cityId);
       if (operations.value.merchantId) query.set('merchantId', operations.value.merchantId);
@@ -117,7 +118,7 @@ export function MetricsCenterClient({
     grain,
     start,
     end,
-    sourceAwareEnabled,
+    effectiveSourceAwareEnabled,
     operations.value.source,
     operations.value.regionId,
     operations.value.cityId,
@@ -127,7 +128,7 @@ export function MetricsCenterClient({
   return (
     <div className="metrics-layout">
       <header className="page-heading"><div><p className="eyebrow">指标中心</p><h1>常用指标与自由组合分析</h1><p>可选择任意数量指标；1—8项显示趋势，9项以上切换为矩阵。</p></div></header>
-      {sourceAwareEnabled && filterOptions
+      {effectiveSourceAwareEnabled && filterOptions
         ? <OperationsFilterBar controller={operations} options={filterOptions} />
         : <section className="operations-filter-shell legacy-source-filter"><div className="operations-filter-bar">
           <label><span>业务来源</span><select aria-label="业务来源" value={operations.value.source} onChange={(event) => operations.setSource(event.target.value as 'DESIGNBAO' | 'XIAOHONGSHU' | 'ALL')}>

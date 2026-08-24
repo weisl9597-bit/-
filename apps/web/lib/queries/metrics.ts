@@ -40,7 +40,7 @@ type LegacyMetricRow = {
   sourceBatch: { createdAt: Date };
 };
 
-export function selectLegacyMetricFacts<T extends LegacyMetricRow>(
+export function selectLatestMetricFacts<T extends LegacyMetricRow>(
   rows: readonly T[],
   source: 'DESIGNBAO' | 'XIAOHONGSHU' | 'ALL',
 ): Array<{ row: T; businessSource: 'DESIGNBAO' | 'XIAOHONGSHU' }> {
@@ -77,6 +77,13 @@ export function selectLegacyMetricFacts<T extends LegacyMetricRow>(
     if (!latest.has(key)) latest.set(key, candidate);
   }
   return [...latest.values()].map(({ row, businessSource }) => ({ row, businessSource }));
+}
+
+export function selectLegacyMetricFacts<T extends LegacyMetricRow>(
+  rows: readonly T[],
+  source: 'DESIGNBAO' | 'XIAOHONGSHU' | 'ALL',
+): Array<{ row: T; businessSource: 'DESIGNBAO' | 'XIAOHONGSHU' }> {
+  return selectLatestMetricFacts(rows, source);
 }
 
 function decimal(value: { toNumber(): number } | null): number | null {
@@ -116,38 +123,22 @@ export const prismaMetricQueryRepository: MetricQueryRepository = {
         periodStart: { gte: query.start, lte: query.end },
         organizationId: organizationIds.length > 0 ? { in: organizationIds } : undefined,
         merchantId: query.merchantId,
-        businessSource: query.source === 'ALL'
-          ? { in: ['DESIGNBAO', 'XIAOHONGSHU'] }
-          : query.source,
+        businessSource: { in: ['OTHER', 'DESIGNBAO', 'XIAOHONGSHU'] },
         sourceBatch: { status: 'SUCCEEDED' },
       },
       include: { sourceBatch: { select: { createdAt: true } } },
       orderBy: [{ sourceBatch: { createdAt: 'desc' } }, { createdAt: 'desc' }],
     });
-    const latest = new Map<string, StoredDailyMetric>();
-    for (const row of rows) {
-      if (row.businessSource === 'ALL') continue;
-      const key = [
-        row.metricId,
-        row.periodStart.toISOString(),
-        row.organizationId,
-        row.merchantId ?? '',
-        row.businessSource,
-        row.dimensionKey,
-      ].join(':');
-      if (latest.has(key)) continue;
-      latest.set(key, {
+    return selectLatestMetricFacts(rows, query.source).map(({ row, businessSource }) => ({
         metricId: row.metricId,
-        businessSource: row.businessSource,
+        businessSource,
         periodStart: row.periodStart,
         organizationId: row.organizationId,
         merchantId: row.merchantId,
         value: decimal(row.value),
         numerator: decimal(row.numerator),
         denominator: decimal(row.denominator),
-      });
-    }
-    return [...latest.values()];
+    }));
   },
 };
 
