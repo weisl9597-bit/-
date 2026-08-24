@@ -67,7 +67,7 @@ export function useOperationsFilters(): OperationsFilterController {
       for (const key of ['source', 'regionId', 'cityId', 'merchantId']) url.searchParams.delete(key);
       params.forEach((selected, key) => url.searchParams.set(key, selected));
       window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}${url.hash}`);
+      window.dispatchEvent(new Event('operations-filter-change'));
     },
   );
 }
-

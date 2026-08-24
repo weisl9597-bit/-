@@ -17,13 +17,13 @@ test('defaults to Designbao and supports region, city and merchant cascading fil
   await page.goto('/metrics');
 
   await expect(page.getByLabel('业务来源')).toHaveValue('DESIGNBAO');
-  await expect(page.getByLabel('大区')).toHaveValue('region-1');
-  await expect(page.getByLabel('城市')).toHaveValue('city-1');
+  await page.getByLabel('大区').selectOption('region-1');
+  await page.getByLabel('城市').selectOption('city-1');
   await expect(page.getByLabel('商家')).toBeEnabled();
 
   await page.getByLabel('商家').selectOption('M1');
   await page.getByLabel('业务来源').selectOption('ALL');
-  await expect.poll(() => new URL(page.url()).searchParams.get('merchantId')).toBe('M1');
+  await expect.poll(() => new URL(page.url()).searchParams.get('merchantId')).toBeNull();
   await expect.poll(() => new URL(page.url()).searchParams.get('source')).toBe('ALL');
 });
 

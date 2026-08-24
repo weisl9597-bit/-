@@ -9,11 +9,13 @@ export async function mockSession(page: Page, role: 'ADMIN' | 'REGION_MANAGER' |
 }
 
 export async function mockDashboard(page: Page) {
-  await page.route('**/api/dashboard', (route) => route.fulfill({
+  await page.route('**/api/dashboard*', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({
       dataDate: '2026-08-21',
+      source: 'DESIGNBAO',
+      hasProjects: true,
       summary: { merchantTotal: 48, abnormalProjects: 12, coachingDue: 7, unimproved: 5 },
       merchantStructure: { A: 20, A_RISK: 4, B: 12, C_CANDIDATE: 3, C: 7, ELIMINATED: 2 },
       alerts: { coaching: [{ id: 'P1' }], improvement: [{ id: 'P1' }], projects: [{ id: 'P1' }] },
@@ -22,13 +24,15 @@ export async function mockDashboard(page: Page) {
 }
 
 export async function mockMetrics(page: Page) {
-  await page.route('**/api/metrics/filters', (route) => route.fulfill({
+  await page.route('**/api/filters/operations*', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({
+      enabled: true,
       regions: [{ id: 'region-1', name: '华南大区' }],
       cities: [{ id: 'city-1', name: '广州市', parentId: 'region-1' }],
       merchants: [{ id: 'M1', name: '示例装饰', organizationId: 'city-1' }],
+      rebuildStatus: { state: 'IDLE', total: 0, completed: 0, failed: 0, lastSuccessfulDate: null },
     }),
   }));
   await page.route('**/api/metrics?*', async (route) => {

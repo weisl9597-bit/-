@@ -32,7 +32,7 @@ export function ProjectsTable({
   items: ProjectListItem[];
   onOpen(item: ProjectListItem): void;
 }) {
-  return <section className="panel data-table"><table><thead><tr><th>项目ID</th><th>装企</th><th>分派时间</th><th>需辅导</th><th>已辅导</th><th>已改善</th><th /></tr></thead><tbody>{items.map((item) => <tr key={`${item.id}:${item.businessSource}`}><td><strong>{item.sourceProjectId}</strong></td><td><strong>{item.merchantName || '未匹配装企'}</strong><small className="secondary-id">{item.merchantId}</small></td><td>{item.assignedAt.slice(0,10)}</td><td>{state(item.needsCoaching)}</td><td>{state(item.coached)}</td><td>{state(item.improved)}</td><td><button onClick={() => onOpen(item)}>查看详情</button></td></tr>)}</tbody></table>{items.length === 0 && <div className="empty-state">暂无符合条件的项目</div>}</section>;
+  return <section className="panel data-table"><table><thead><tr><th>项目ID</th><th>装企</th><th>分派时间</th><th>需辅导</th><th>已辅导</th><th>已改善</th><th /></tr></thead><tbody>{items.map((item) => <tr key={`${item.id}:${item.businessSource}`}><td><strong>{item.sourceProjectId}</strong></td><td><strong>{item.merchantName || '未匹配装企'}</strong><small className="secondary-id">{item.merchantId}</small></td><td>{item.assignedAt.slice(0,10)}</td><td>{state(item.needsCoaching)}</td><td>{state(item.coached)}</td><td>{state(item.improved)}</td><td><button onClick={() => onOpen(item)}>查看详情</button></td></tr>)}</tbody></table>{items.length === 0 && <div className="empty-state operations-empty-state">暂无符合条件的项目</div>}</section>;
 }
 
 function normalizeDetail(
@@ -120,4 +120,3 @@ export function ProjectsCenterClient() {
     {detail && <aside className="detail-drawer"><button className="drawer-close" onClick={() => { setDetail(null); setDetailTarget(null); }}>×</button><ProjectDetail project={detail} filters={operations} /></aside>}
   </div>;
 }
-

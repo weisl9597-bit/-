@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { DashboardView } from '../components/dashboard/dashboard-view';
 import { createOperationsFilterController } from '../components/filters/use-operations-filters';
+import { buildOperationsHref } from '../components/navigation/sidebar';
 
 describe('dashboard UI', () => {
   it('exposes the three operational alert entrances and merchant structure', () => {
@@ -52,5 +53,16 @@ describe('dashboard UI', () => {
     }));
     expect(html).toContain('当前筛选范围暂无项目数据');
   });
-});
 
+  it('keeps only global operations parameters in sidebar navigation', () => {
+    const href = buildOperationsHref(
+      '/projects',
+      '?source=XIAOHONGSHU&regionId=r1&cityId=c1&metricIds=a,b&start=2026-08-01',
+    );
+    expect(href).toContain('source=XIAOHONGSHU');
+    expect(href).toContain('regionId=r1');
+    expect(href).toContain('cityId=c1');
+    expect(href).not.toContain('metricIds');
+    expect(href).not.toContain('start=');
+  });
+});

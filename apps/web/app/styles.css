@@ -787,6 +787,76 @@ button {
 .decision-card textarea { resize: vertical; }
 .decision-card button { grid-column: 1 / -1; }
 
+.operations-filter-shell {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.operations-filter-bar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #e4e8f1;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 8px 28px rgb(35 49 88 / 5%);
+}
+
+.operations-filter-bar label {
+  display: grid;
+  gap: 6px;
+  color: #7b8498;
+  font-size: 12px;
+}
+
+.operations-filter-bar select {
+  min-height: 40px;
+  padding: 8px 11px;
+  border: 1px solid #dce1ec;
+  border-radius: 9px;
+  color: #26324e;
+  background: #fff;
+  outline: none;
+}
+
+.operations-filter-bar select:focus {
+  border-color: #8290ec;
+  box-shadow: 0 0 0 3px rgb(92 108 219 / 10%);
+}
+
+.rebuild-banner {
+  padding: 12px 15px;
+  border: 1px solid #f0d08d;
+  border-radius: 10px;
+  color: #85611e;
+  background: #fff9e9;
+}
+
+.rebuild-banner.rebuild-failed {
+  border-color: #f0b8bd;
+  color: #8f2631;
+  background: #fff3f4;
+}
+
+.secondary-id {
+  display: block;
+  margin-top: 3px;
+  color: #98a0b2;
+  font-size: 10px;
+}
+
+.operations-empty-state {
+  min-height: 160px;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+}
+
+.operations-empty-state h2,
+.operations-empty-state p { margin: 0; }
+
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 200px minmax(0, 1fr); }
   .sidebar { padding-inline: 14px; }
@@ -794,6 +864,7 @@ button {
   .structure-grid { grid-template-columns: repeat(3, 1fr); }
   .metrics-workspace { grid-template-columns: 320px minmax(0, 1fr); }
   .metric-matrix { grid-template-columns: repeat(2, 1fr); }
+  .operations-filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
@@ -825,6 +896,7 @@ button {
 @media (max-width: 440px) {
   .summary-grid, .metric-matrix { grid-template-columns: 1fr; }
   .metric-filter-bar { grid-template-columns: 1fr; }
+  .operations-filter-bar { grid-template-columns: 1fr; }
   .structure-grid { grid-template-columns: repeat(2, 1fr); }
   .filter-bar > * { width: 100%; }
   .filter-bar > input { min-width: 0; }

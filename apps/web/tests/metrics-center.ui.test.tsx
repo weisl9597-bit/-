@@ -2,7 +2,9 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { metricCatalog } from '@designbao/metrics/catalog';
+import { MetricsCenterClient } from '../components/metrics/metrics-center-client';
 import { MetricSelectionView, displayModeFor, selectAllMetricIds } from '../components/metrics/metric-selection';
+import { createOperationsFilterController } from '../components/filters/use-operations-filters';
 
 describe('metrics center UI', () => {
   it('supports selecting every supplied document indicator', () => {
@@ -20,5 +22,27 @@ describe('metrics center UI', () => {
     expect(displayModeFor(8)).toBe('TREND');
     expect(displayModeFor(9)).toBe('MATRIX');
     expect(displayModeFor(40)).toBe('MATRIX');
+  });
+
+  it('uses the one shared operations filter bar without a duplicate source selector', () => {
+    const current = { source: 'DESIGNBAO' as const, cityId: 'city-1' };
+    const operations = createOperationsFilterController(
+      () => current,
+      () => undefined,
+      () => undefined,
+    );
+    const html = renderToStaticMarkup(createElement(MetricsCenterClient, {
+      operations,
+      filterOptions: {
+        enabled: true,
+        regions: [{ id: 'region-1', name: '华南大区' }],
+        cities: [{ id: 'city-1', name: '广州市', parentId: 'region-1' }],
+        merchants: [],
+        rebuildStatus: { state: 'IDLE', total: 0, completed: 0, failed: 0, lastSuccessfulDate: null },
+      },
+    }));
+    expect((html.match(/aria-label="业务来源"/g) ?? [])).toHaveLength(1);
+    expect(html).toContain('operations-filter-bar');
+    expect(html).not.toContain('metric-filter-bar');
   });
 });

@@ -49,7 +49,7 @@ export function DashboardView({
         controller={filters}
         options={filterOptions}
       />}
-      {data.dataDate && !data.hasProjects ? <section className="panel empty-state">
+      {data.dataDate && !data.hasProjects ? <section className="panel empty-state operations-empty-state">
         <h2>当前筛选范围暂无项目数据</h2>
         <p>可切换业务来源或组织范围后重试。</p>
       </section> : <>
@@ -88,4 +88,3 @@ export function DashboardView({
     </div>
   );
 }
-
