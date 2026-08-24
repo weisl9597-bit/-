@@ -1,7 +1,7 @@
 import type { ActualBusinessSource, SelectableBusinessSource } from '@designbao/domain/business-source';
 import { getPeriodBounds } from '@designbao/domain/period';
 import { allMetricDefinitions } from './catalog';
-import { rate } from './calculate';
+import { calculateMetric, rate, type MetricRow } from './calculate';
 
 export type MetricQuery = {
   metricIds: string[];
@@ -37,6 +37,67 @@ export type MetricSeries = { metricId: string; points: MetricSeriesPoint[] };
 export type MetricQueryRepository = {
   listDaily(query: MetricQuery): Promise<StoredDailyMetric[]>;
 };
+
+export type LatestUploadMetricRowsSource = {
+  loadLatestRows(): Promise<MetricRow[]>;
+};
+
+function datesBetween(start: Date, end: Date): Date[] {
+  const current = new Date(Date.UTC(
+    start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate(),
+  ));
+  const last = new Date(Date.UTC(
+    end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate(),
+  ));
+  const dates: Date[] = [];
+  while (current <= last) {
+    dates.push(new Date(current));
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+export function createLatestUploadMetricQueryRepository(
+  source: LatestUploadMetricRowsSource,
+): MetricQueryRepository {
+  return {
+    async listDaily(query): Promise<StoredDailyMetric[]> {
+      const rows = await source.loadLatestRows();
+      const definitions = new Map(allMetricDefinitions.map((definition) => [definition.id, definition]));
+      const sources: ActualBusinessSource[] = query.source === 'ALL'
+        ? ['DESIGNBAO', 'XIAOHONGSHU']
+        : [query.source];
+      const organizationId = query.organizationIds.at(-1) ?? 'latest-upload';
+      const facts: StoredDailyMetric[] = [];
+
+      for (const periodStart of datesBetween(query.start, query.end)) {
+        const periodDate = periodStart.toISOString().slice(0, 10);
+        for (const businessSource of sources) {
+          const scopedRows = rows.filter((row) => (
+            row.businessSource === businessSource
+            && (query.organizationIds.length === 0
+              || query.organizationIds.some((id) => row.organizationIds.includes(id)))
+            && (!query.merchantId || row.merchantId === query.merchantId)
+          ));
+          for (const metricId of query.metricIds) {
+            const definition = definitions.get(metricId);
+            if (!definition) continue;
+            const result = calculateMetric(definition, scopedRows, periodDate);
+            facts.push({
+              metricId,
+              businessSource,
+              periodStart,
+              organizationId,
+              merchantId: query.merchantId ?? null,
+              ...result,
+            });
+          }
+        }
+      }
+      return facts;
+    },
+  };
+}
 
 export async function queryMetricSeries(
   query: MetricQuery,
