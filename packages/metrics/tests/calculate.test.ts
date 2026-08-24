@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { managementMetricCatalog, metricCatalog } from '../src/catalog';
+import * as calculateModule from '../src/calculate';
 import { calculateMetric, rate, type MetricRow } from '../src/calculate';
 
 function definition(id: string) {
@@ -30,6 +31,51 @@ const rows: MetricRow[] = [
 ];
 
 describe('metric calculation', () => {
+  it('reconstructs every metric input from the stored Excel column facts', () => {
+    const buildMetricRowsFromUpload = (
+      calculateModule as typeof calculateModule & {
+        buildMetricRowsFromUpload?: (input: unknown) => MetricRow[];
+      }
+    ).buildMetricRowsFromUpload;
+
+    expect(buildMetricRowsFromUpload).toBeTypeOf('function');
+    if (!buildMetricRowsFromUpload) return;
+
+    const result = buildMetricRowsFromUpload({
+      dataDate: '2026-08-23',
+      uploadRows: [{
+        id: 'upload-row-1', sourceRow: 2,
+        raw: {
+          A: '北京市', B: 'M1', D: 'P1', F: '设计宝', H: '2026/08/01',
+          I: '2026/08/02', J: 2, N: '是', O: '是', P: '否', T: '是', U: '是',
+          AL: '2026/08/03',
+        },
+        canonical: {
+          city: '北京市', merchantId: 'M1', projectId: 'P1', assignmentId: 'P1::M1',
+          businessSource: '设计宝',
+        },
+      }],
+      organizations: [
+        { id: 'national', name: '全国', level: 'NATIONAL', parent: null },
+        { id: 'region-1', name: '北京大区', level: 'REGION', parent: { id: 'national', parent: null } },
+        {
+          id: 'city-1', name: '北京市', level: 'CITY',
+          parent: { id: 'region-1', parent: { id: 'national' } },
+        },
+      ],
+      merchantIds: ['M1'],
+    });
+
+    expect(result).toEqual([expect.objectContaining({
+      rowId: 'upload-row-1', assignmentId: 'P1::M1', sourceProjectId: 'P1',
+      organizationIds: ['national', 'region-1', 'city-1'], merchantId: 'M1',
+      businessSource: 'DESIGNBAO', projectDate: '2026-08-01', assignmentDate: '2026-08-02',
+      signedDate: '2026-08-03', assignmentCount: 2,
+      followWithin30m: true, needsAnalyzed: true, hardInvite: false,
+      raw: expect.objectContaining({ T: '是', U: '是' }),
+    })]);
+  });
+
   it('returns null rather than 0 percent when the denominator is empty', () => {
     expect(rate(0, 0)).toEqual({ value: null, numerator: 0, denominator: 0 });
   });
