@@ -1,6 +1,8 @@
 import { db } from '@designbao/db/client';
 import { metricCatalog } from '@designbao/metrics/catalog';
+import { buildMetricRowsFromUpload } from '@designbao/metrics/calculate';
 import {
+  createLatestUploadMetricQueryRepository,
   queryMetricSeries,
   type MetricQueryRepository,
   type StoredDailyMetric,
@@ -90,57 +92,41 @@ function decimal(value: { toNumber(): number } | null): number | null {
   return value === null ? null : value.toNumber();
 }
 
-export const prismaMetricQueryRepository: MetricQueryRepository = {
-  async listDaily(query): Promise<StoredDailyMetric[]> {
-    let organizationIds = query.organizationIds;
-    if (query.merchantId) {
-      organizationIds = query.organizationIds;
-    } else if (organizationIds.length > 0) {
-      const scoped = await db.organization.findMany({
-        where: { id: { in: organizationIds } },
-        select: { id: true, level: true },
+export const prismaMetricQueryRepository: MetricQueryRepository =
+  createLatestUploadMetricQueryRepository({
+    async loadLatestRows() {
+      const latestBatch = await db.uploadBatch.findFirst({
+        where: { status: 'SUCCEEDED' },
+        select: { id: true, dataDate: true },
+        orderBy: [{ dataDate: 'desc' }, { createdAt: 'desc' }],
       });
-      const aggregateLevel = scoped.some(({ level }) => level === 'REGION') ? 'REGION' : 'CITY';
-      organizationIds = scoped.filter(({ level }) => level === aggregateLevel).map(({ id }) => id);
-    } else {
-      const national = await db.organization.findMany({
-        where: { level: 'NATIONAL' },
-        select: { id: true },
+      if (!latestBatch) return [];
+
+      const [uploadRows, organizations, merchants] = await Promise.all([
+        db.uploadRow.findMany({
+          where: { batchId: latestBatch.id, sourceSheet: '项目明细2' },
+          select: { id: true, sourceRow: true, raw: true, canonical: true },
+          orderBy: { sourceRow: 'asc' },
+        }),
+        db.organization.findMany({
+          select: {
+            id: true,
+            name: true,
+            level: true,
+            parent: { select: { id: true, parent: { select: { id: true } } } },
+          },
+        }),
+        db.merchant.findMany({ select: { id: true } }),
+      ]);
+
+      return buildMetricRowsFromUpload({
+        dataDate: latestBatch.dataDate.toISOString().slice(0, 10),
+        uploadRows,
+        organizations,
+        merchantIds: merchants.map(({ id }) => id),
       });
-      organizationIds = national.map(({ id }) => id);
-      if (organizationIds.length === 0) {
-        const regions = await db.organization.findMany({
-          where: { level: 'REGION' },
-          select: { id: true },
-        });
-        organizationIds = regions.map(({ id }) => id);
-      }
-    }
-    const rows = await db.metricSnapshot.findMany({
-      where: {
-        metricId: { in: query.metricIds },
-        grain: 'DAY',
-        periodStart: { gte: query.start, lte: query.end },
-        organizationId: organizationIds.length > 0 ? { in: organizationIds } : undefined,
-        merchantId: query.merchantId,
-        businessSource: { in: ['OTHER', 'DESIGNBAO', 'XIAOHONGSHU'] },
-        sourceBatch: { status: 'SUCCEEDED' },
-      },
-      include: { sourceBatch: { select: { createdAt: true } } },
-      orderBy: [{ sourceBatch: { createdAt: 'desc' } }, { createdAt: 'desc' }],
-    });
-    return selectLatestMetricFacts(rows, query.source).map(({ row, businessSource }) => ({
-        metricId: row.metricId,
-        businessSource,
-        periodStart: row.periodStart,
-        organizationId: row.organizationId,
-        merchantId: row.merchantId,
-        value: decimal(row.value),
-        numerator: decimal(row.numerator),
-        denominator: decimal(row.denominator),
-    }));
-  },
-};
+    },
+  });
 
 export const prismaLegacyMetricQueryRepository: MetricQueryRepository = {
   async listDaily(query): Promise<StoredDailyMetric[]> {
@@ -237,3 +223,4 @@ export async function getMetricCenterDataForRollout(
     dependencies.resolveSelection,
   );
 }
+
