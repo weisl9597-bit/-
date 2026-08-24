@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 
 import { parseWorkbook } from '../src/parse-workbook';
 import { validateBatch } from '../src/validate-batch';
+import {
+  normalizeBusinessSource,
+  type SelectableBusinessSource,
+} from '../../domain/src/business-source';
 import { metricCatalog } from '../../metrics/src/catalog';
 import { calculateMetric, rate, type MetricRow } from '../../metrics/src/calculate';
 
@@ -33,6 +37,63 @@ function yes(value: unknown): boolean | null {
   if (['是', '有', '已完成', '完成', '1', 'true'].includes(normalized)) return true;
   if (['否', '无', '未完成', '0', 'false'].includes(normalized)) return false;
   return null;
+}
+
+function toMetricRows(
+  projects: Awaited<ReturnType<typeof parseWorkbook>>['projects'],
+): MetricRow[] {
+  return projects.map((record) => {
+    const sourceProjectId = String(record.projectId ?? '').trim() || `row:${record.sourceRow}`;
+    const merchantId = String(record.merchantId ?? '').trim();
+    return {
+      rowId: `row:${record.sourceRow}`,
+      assignmentId: `${sourceProjectId}::${merchantId || `row:${record.sourceRow}`}`,
+      sourceProjectId,
+      organizationIds: ['national'],
+      merchantId,
+      dataDate: workbookDate(record.raw.H) ?? '2026-08-23',
+      projectDate: workbookDate(record.raw.H),
+      assignmentDate: workbookDate(record.raw.I),
+      signedDate: workbookDate(record.raw.AL),
+      assignmentCount: Number(record.raw.J) || 0,
+      businessSource: normalizeBusinessSource(
+        record.businessSourceRaw ?? record.category ?? record.raw.F,
+      ),
+      followWithin30m: yes(record.raw.N),
+      needsAnalyzed: yes(record.raw.O),
+      hardInvite: yes(record.raw.P),
+      needsCoaching: null,
+      coached: null,
+      improved: null,
+      raw: record.raw,
+    };
+  });
+}
+
+function datesBetween(start: string, end: string): string[] {
+  const dates: string[] = [];
+  const current = new Date(`${start}T00:00:00.000Z`);
+  const last = new Date(`${end}T00:00:00.000Z`);
+  while (current <= last) {
+    dates.push(current.toISOString().slice(0, 10));
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function metricValue(
+  rows: MetricRow[],
+  input: { metricId: string; source: SelectableBusinessSource; start: string; end: string },
+): number | null {
+  const definition = metricCatalog.find((item) => item.id === input.metricId);
+  if (!definition) throw new Error(`Unknown metric: ${input.metricId}`);
+  const scopedRows = rows.filter((row) => input.source === 'ALL'
+    ? row.businessSource !== 'OTHER'
+    : row.businessSource === input.source);
+  return datesBetween(input.start, input.end).reduce(
+    (sum, date) => sum + (calculateMetric(definition, scopedRows, date).value ?? 0),
+    0,
+  );
 }
 
 describe.skipIf(!sourceFile)('supplied Designbao workbook', () => {
@@ -81,32 +142,8 @@ describe.skipIf(!sourceFile)('supplied Designbao workbook', () => {
 
   it('matches the 40 cached August values in 总数据（设计宝）', async () => {
     const parsed = await parseWorkbook(await readFile(sourceFile!));
-    const rows: MetricRow[] = parsed.projects
-      .filter((record) => String(record.category ?? '').trim() === '设计宝')
-      .map((record) => {
-        const sourceProjectId = String(record.projectId ?? '').trim() || `row:${record.sourceRow}`;
-        const merchantId = String(record.merchantId ?? '').trim();
-        return {
-        rowId: `row:${record.sourceRow}`,
-        assignmentId: `${sourceProjectId}::${merchantId || `row:${record.sourceRow}`}`,
-        sourceProjectId,
-        organizationIds: ['national'],
-        merchantId,
-        dataDate: workbookDate(record.raw.H) ?? '2026-08-23',
-        projectDate: workbookDate(record.raw.H),
-        assignmentDate: workbookDate(record.raw.I),
-        signedDate: workbookDate(record.raw.AL),
-        assignmentCount: Number(record.raw.J) || 0,
-        businessSource: 'DESIGNBAO',
-        followWithin30m: yes(record.raw.N),
-        needsAnalyzed: yes(record.raw.O),
-        hardInvite: yes(record.raw.P),
-        needsCoaching: null,
-        coached: null,
-        improved: null,
-        raw: record.raw,
-      };
-      });
+    const allRows = toMetricRows(parsed.projects);
+    const rows = allRows.filter((row) => row.businessSource === 'DESIGNBAO');
     const dates = Array.from(
       { length: 31 },
       (_, index) => `2026-08-${String(index + 1).padStart(2, '0')}`,
@@ -129,5 +166,32 @@ describe.skipIf(!sourceFile)('supplied Designbao workbook', () => {
       26.9278, 3.7944, 122, 97, 128, 140, 21.7469, 24.9554,
       164, 148, 96, 64, 0, 38.9549,
     ]);
+
+    const range = { start: '2026-08-01', end: '2026-08-23' };
+    expect(metricValue(allRows, {
+      metricId: 'dispatch_project_count',
+      source: 'DESIGNBAO',
+      ...range,
+    })).toBe(561);
+
+    const inRange = (row: MetricRow) => Boolean(
+      row.projectDate && row.projectDate >= range.start && row.projectDate <= range.end,
+    );
+    const expectedXiaohongshu = allRows.filter(
+      (row) => row.businessSource === 'XIAOHONGSHU' && inRange(row),
+    ).length;
+    const expectedAll = allRows.filter(
+      (row) => row.businessSource !== 'OTHER' && inRange(row),
+    ).length;
+    expect(metricValue(allRows, {
+      metricId: 'dispatch_project_count',
+      source: 'XIAOHONGSHU',
+      ...range,
+    })).toBe(expectedXiaohongshu);
+    expect(metricValue(allRows, {
+      metricId: 'dispatch_project_count',
+      source: 'ALL',
+      ...range,
+    })).toBe(expectedAll);
   });
 });

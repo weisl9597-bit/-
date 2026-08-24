@@ -51,7 +51,7 @@ describe('merchant, project and admin UI', () => {
       }],
       onOpen: () => undefined,
     }));
-    expect(html).toContain('<th>装企</th>');
+    expect(html).toContain('<th scope="col">装企</th>');
     expect(html).not.toContain('<th>商家ID</th>');
     expect(html).toContain('<strong>示例装饰</strong>');
     expect(html).toContain('class="secondary-id">M1</small>');
@@ -130,4 +130,3 @@ describe('merchant, project and admin UI', () => {
     expect(html).toContain('required');
   });
 });
-

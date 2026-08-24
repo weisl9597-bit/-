@@ -53,6 +53,25 @@ BACKUP_SHA256=<记录的哈希> pnpm tsx infra/backup/verify-backup.ts designbao
 4. 仅在迁移成功后更新 Web 和 Worker。
 5. 完成上面的发布冒烟，并观察失败作业数至少 15 分钟。
 
+## Railway 业务来源筛选上线顺序
+
+这是一次“先写入、后切换查询”的渐进上线。必须严格按以下顺序执行：
+
+1. 备份 Railway PostgreSQL，并记录备份时间与校验结果。
+2. 在 Web 服务设置 `SOURCE_AWARE_OPERATIONS_ENABLED=false`。
+3. 部署包含增量迁移及来源写入逻辑的同一版 Web、Worker。
+4. 确认首页、指标中心、商家中心、项目中心仍走旧查询路径且可正常使用。
+5. 在 Railway 一次性 Shell 中只运行一次 `pnpm rebuild:business-source`，不要重新上传 Excel。
+6. 等待重建状态满足 `completed = total` 且 `failed = 0`；未满足时不要打开新查询。
+7. 用来源感知验收查询确认：设计宝在 `2026-08-01..2026-08-23` 的“分派项目数”为 `561`。
+8. 分别在设计宝、小红书、全部业务中抽查至少三个装企，并核对项目、指标和分类。
+9. 将 Web 的 `SOURCE_AWARE_OPERATIONS_ENABLED` 改为 `true`，只重新部署 Web。
+10. 再次检查四个中心，并保留上一版 Web 部署作为快速回滚点。
+
+最终验收还必须确认 `/api/health` 返回 HTTP 200，Web、Worker、PostgreSQL 均为 Online；项目中心的“装企”列显示装企名称，商家 ID 以小字显示在名称下方。
+
+若任何来源验收失败，立即把 Web 的 `SOURCE_AWARE_OPERATIONS_ENABLED` 改回 `false` 并重新部署 Web。增量迁移和来源字段保留，不执行数据库向下迁移；用户继续看到上一条稳定查询路径的数据。
+
 ## 应用回滚
 
 若新版本页面或 Worker 异常，但数据库仍兼容：

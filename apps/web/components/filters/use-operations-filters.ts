@@ -45,7 +45,11 @@ export function createOperationsFilterController(
     },
     setMerchant(merchantId) {
       const current = getValue();
-      const { merchantId: _currentMerchantId, ...upstream } = current;
+      const upstream: OperationsFilter = {
+        source: current.source,
+        ...(current.regionId ? { regionId: current.regionId } : {}),
+        ...(current.cityId ? { cityId: current.cityId } : {}),
+      };
       commit(merchantId ? { ...upstream, merchantId } : upstream);
     },
     toSearchParams(extra) { return paramsFor(getValue(), extra); },
