@@ -61,7 +61,7 @@ BACKUP_SHA256=<记录的哈希> pnpm tsx infra/backup/verify-backup.ts designbao
 2. 在 Web 和 Worker 两个服务都设置 `SOURCE_AWARE_OPERATIONS_ENABLED=false`。
 3. 第一次发布只部署扩展迁移 `20260823_business_source_operations` 及兼容写入逻辑；这一阶段保留三个旧唯一索引。
 4. 等 Web、Worker 都显示同一提交且 Online，并确认上一版容器已停止；确认四个中心仍保留原来源筛选和旧查询口径。
-5. 把 `packages/db/prisma/contract/20260824_finalize_business_source_operations.sql` 作为一个**新的、独立的 Prisma migration** 提交并进行第二次发布。禁止把扩展迁移和收缩迁移放进同一次 Railway 发布。
+5. 第二次发布只增加独立迁移 `20260824_finalize_business_source_operations`，删除三个旧唯一索引。禁止把扩展迁移和收缩迁移放进同一次 Railway 发布。
 6. 等第二次发布的 Web、Worker 都为 Online 后，只把 Worker 的 `SOURCE_AWARE_OPERATIONS_ENABLED` 改为 `true` 并重新部署 Worker；Web 继续保持 `false`。确认旧 Worker 已全部退出。
 7. 在 Railway 一次性 Shell 中只运行一次 `pnpm rebuild:business-source`，不要重新上传 Excel；等待重建状态满足 `completed = total` 且 `failed = 0`。
 8. 用后台验收查询确认：设计宝在 `2026-08-01..2026-08-23` 的“分派项目数”为 `561`，并确认 DESIGNBAO、XIAOHONGSHU、ALL 三类商家分类均已生成。

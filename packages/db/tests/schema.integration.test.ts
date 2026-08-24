@@ -14,7 +14,7 @@ const sourceMigrationPath = fileURLToPath(
 );
 const sourceContractPath = fileURLToPath(
   new URL(
-    '../prisma/contract/20260824_finalize_business_source_operations.sql',
+    '../prisma/migrations/20260824_finalize_business_source_operations/migration.sql',
     import.meta.url,
   ),
 );
