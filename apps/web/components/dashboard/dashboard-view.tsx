@@ -8,6 +8,7 @@ export type DashboardData = {
   dataDate: string | null;
   source: 'DESIGNBAO' | 'XIAOHONGSHU' | 'ALL';
   hasProjects: boolean;
+  alertWindow: { assignedFrom: string; assignedTo: string } | null;
   summary: { merchantTotal: number; abnormalProjects: number; coachingDue: number; unimproved: number };
   merchantStructure: Record<'A' | 'A_RISK' | 'B' | 'C_CANDIDATE' | 'C' | 'ELIMINATED', number>;
   alerts: { coaching: unknown[]; improvement: unknown[]; projects: unknown[] };
@@ -33,11 +34,15 @@ export function DashboardView({
     }
     return `${pathname}?${filters.toSearchParams(extra).toString()}`;
   };
+  const alertHref = (alert: 'COACHING' | 'IMPROVEMENT' | 'ABNORMAL') => href('/projects', {
+    alert,
+    ...(data.alertWindow ?? {}),
+  });
   const cards = [
     { label: '商家总数', value: data.summary.merchantTotal, href: href('/merchants') },
-    { label: '待辅导项目', value: data.summary.coachingDue, href: href('/projects', { coached: 'blank' }) },
-    { label: '未改善项目', value: data.summary.unimproved, href: href('/projects', { improved: 'false' }) },
-    { label: '异常项目', value: data.summary.abnormalProjects, href: href('/projects', { abnormal: 'true' }) },
+    { label: '待辅导项目', value: data.summary.coachingDue, href: alertHref('COACHING') },
+    { label: '未改善项目', value: data.summary.unimproved, href: alertHref('IMPROVEMENT') },
+    { label: '异常项目', value: data.summary.abnormalProjects, href: alertHref('ABNORMAL') },
   ];
   return (
     <div className="dashboard-grid">
@@ -63,13 +68,13 @@ export function DashboardView({
       <section className="panel attention-panel">
         <div className="section-heading"><div><p className="eyebrow">今日关注 · 近72小时内分派项目</p><h2>异常处理入口</h2></div></div>
         <div className="attention-grid">
-          <Link href={href('/projects', { coached: 'blank' })} className="attention-card warning">
+          <Link href={alertHref('COACHING')} className="attention-card warning">
             <span>辅导执行异常</span><strong>{data.alerts.coaching.length}</strong><p>应辅导但辅导结果为空</p>
           </Link>
-          <Link href={href('/projects', { improved: 'false' })} className="attention-card danger">
+          <Link href={alertHref('IMPROVEMENT')} className="attention-card danger">
             <span>商家改善异常</span><strong>{data.alerts.improvement.length}</strong><p>已进入观察但仍未改善</p>
           </Link>
-          <Link href={href('/projects', { abnormal: 'true' })} className="attention-card indigo">
+          <Link href={alertHref('ABNORMAL')} className="attention-card indigo">
             <span>项目异常</span><strong>{data.summary.abnormalProjects}</strong><p>查看需辅导、未改善及空白项目</p>
           </Link>
         </div>
@@ -88,3 +93,4 @@ export function DashboardView({
     </div>
   );
 }
+
