@@ -16,7 +16,7 @@ export type MetricDefinition = {
   direction: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
   source: 'CALCULATED';
   sortOrder: number;
-  formulaVersion: 'v2';
+  formulaVersion: 'v3';
 };
 
 const groups: Record<MetricGroupId, string> = {
@@ -39,7 +39,7 @@ function metric(
 ): MetricDefinition {
   return {
     id, name, groupId, groupName: groups[groupId], unit, direction,
-    source: 'CALCULATED', sortOrder, formulaVersion: 'v2',
+    source: 'CALCULATED', sortOrder, formulaVersion: 'v3',
   };
 }
 
@@ -99,3 +99,4 @@ export const allMetricDefinitions = [
   ...metricCatalog,
   ...managementMetricCatalog,
 ] as const;
+
