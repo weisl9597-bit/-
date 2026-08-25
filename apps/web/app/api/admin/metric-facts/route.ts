@@ -105,6 +105,16 @@ export async function GET(request: Request) {
       && row.assignmentDate >= '2026-08-01'
       && row.assignmentDate <= '2026-08-24'
   ));
+  const xiaohongshuProjectIds = new Set(
+    metricRows
+      .filter((row) => row.businessSource === 'XIAOHONGSHU')
+      .map((row) => row.sourceProjectId),
+  );
+  const sharedSourceProjectIds = new Set(
+    acceptedDesignbaoAssignmentAugust
+      .map((row) => row.sourceProjectId)
+      .filter((projectId) => xiaohongshuProjectIds.has(projectId)),
+  );
   const augustDates = Array.from({ length: 24 }, (_, index) =>
     `2026-08-${String(index + 1).padStart(2, '0')}`,
   );
@@ -178,6 +188,15 @@ export async function GET(request: Request) {
       acceptedAugustAudit: {
         byProjectDate: summarizeRows(acceptedDesignbaoAugust),
         byAssignmentDate: summarizeRows(acceptedDesignbaoAssignmentAugust),
+        sourceProjectOverlap: {
+          sharedProjectIds: sharedSourceProjectIds.size,
+          sharedRows: summarizeRows(acceptedDesignbaoAssignmentAugust.filter(
+            (row) => sharedSourceProjectIds.has(row.sourceProjectId),
+          )),
+          designbaoOnlyRows: summarizeRows(acceptedDesignbaoAssignmentAugust.filter(
+            (row) => !sharedSourceProjectIds.has(row.sourceProjectId),
+          )),
+        },
         byBusinessCategory: Object.fromEntries(
           [...new Set(acceptedDesignbaoAugust.map((row) => String(row.raw.F ?? '<empty>').trim()))]
             .sort()
