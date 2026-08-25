@@ -46,7 +46,7 @@ async function runOnce(): Promise<void> {
 }
 
 async function startWorker(): Promise<void> {
-  const formulaVersion = allMetricDefinitions[0]?.formulaVersion ?? 'v2';
+  const formulaVersion = allMetricDefinitions[0]?.formulaVersion ?? 'v3';
   const requeued = await requeueOutdatedImportJobs(formulaVersion);
   if (requeued > 0) console.info(`event: imports_requeued count: ${requeued} formulaVersion: ${formulaVersion}`);
   await runOnce();
@@ -54,3 +54,4 @@ async function startWorker(): Promise<void> {
 }
 
 void startWorker();
+
