@@ -35,7 +35,7 @@ describe('metric snapshots', () => {
     expect(saved).toContainEqual(expect.objectContaining({
       metricId: 'merchant_sop_compliance_rate', grain: 'DAY', periodStart: '2026-08-21',
       organizationId: 'city-1', merchantId: 'M1', numerator: 1, denominator: 1, value: 100,
-      sourceBatchId: 'batch-1', formulaVersion: 'v2',
+      sourceBatchId: 'batch-1', formulaVersion: 'v3',
       businessSource: 'DESIGNBAO', dimensionKey: 'merchant:M1',
     }));
     expect(saved).toContainEqual(expect.objectContaining({
@@ -141,3 +141,4 @@ describe('metric snapshots', () => {
     expect(Math.max(...batchSizes)).toBeLessThanOrEqual(500);
   });
 });
+
