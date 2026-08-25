@@ -79,6 +79,29 @@ describe('metric calculation', () => {
     })]);
   });
 
+  it('excludes upload rows that did not pass validation', () => {
+    const result = calculateModule.buildMetricRowsFromUpload({
+      dataDate: '2026-08-23',
+      uploadRows: [{
+        id: 'rejected-row',
+        sourceRow: 3,
+        raw: {
+          A: '北京市', B: 'M1', D: 'REJECTED', F: '设计宝', G: '2026/08/01',
+          H: '2026/08/02', I: 1, S: '是', T: '是',
+        },
+        canonical: {},
+      }],
+      organizations: [
+        { id: 'national', name: '全国', level: 'NATIONAL' },
+        { id: 'region-1', name: '北京大区', level: 'REGION', parent: { id: 'national' } },
+        { id: 'city-1', name: '北京市', level: 'CITY', parent: { id: 'region-1', parent: { id: 'national' } } },
+      ],
+      merchantIds: ['M1'],
+    });
+
+    expect(result).toEqual([]);
+  });
+
   it('returns null rather than 0 percent when the denominator is empty', () => {
     expect(rate(0, 0)).toEqual({ value: null, numerator: 0, denominator: 0 });
   });

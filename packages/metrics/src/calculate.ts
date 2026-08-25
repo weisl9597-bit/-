@@ -110,6 +110,9 @@ export function buildMetricRowsFromUpload(input: {
   return input.uploadRows.flatMap((uploadRow): MetricRow[] => {
     const raw = record(uploadRow.raw);
     const canonical = record(uploadRow.canonical);
+    // Import validation persists every source row for auditability. Only rows
+    // with a canonical record passed validation and may enter business metrics.
+    if (Object.keys(canonical).length === 0) return [];
     const projectDate = workbookDate(canonical.assignedAt)
       ?? workbookDate(raw[workbookColumns.projectDate])
       ?? input.dataDate;
