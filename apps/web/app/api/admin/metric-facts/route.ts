@@ -1,6 +1,9 @@
 import { db } from '@designbao/db/client';
 import { normalizeBusinessSource } from '@designbao/domain/business-source';
-import { parseWorkbook } from '@designbao/importer/parse-workbook';
+import {
+  inspectWorkbookAugustMetricValues,
+  parseWorkbook,
+} from '@designbao/importer/parse-workbook';
 import { metricCatalog } from '@designbao/metrics/catalog';
 import { buildMetricRowsFromUpload, calculateMetric } from '@designbao/metrics/calculate';
 import type { MetricRow } from '@designbao/metrics/calculate';
@@ -140,6 +143,9 @@ export async function GET(request: Request) {
     ? await createConfiguredObjectStore().getObject(latestBatch.objectKey)
     : null;
   const parsedWorkbook = workbookBuffer ? await parseWorkbook(workbookBuffer) : null;
+  const cachedAugustMetrics = workbookBuffer
+    ? await inspectWorkbookAugustMetricValues(workbookBuffer)
+    : [];
   const parsedAugust = parsedWorkbook?.projects.filter((row) => {
     const assignedAt = dateKey(row.assignedAt);
     return assignedAt !== null
@@ -170,6 +176,7 @@ export async function GET(request: Request) {
         min: parsedDesignbaoAugust.map((row) => dateKey(row.assignedAt)).filter(Boolean).sort()[0] ?? null,
         max: parsedDesignbaoAugust.map((row) => dateKey(row.assignedAt)).filter(Boolean).sort().at(-1) ?? null,
       },
+      cachedAugustMetrics,
     } : null,
     storedRows: uploadRows.length,
     canonicalRows: canonicalRecords.filter((row) => Object.keys(row).length > 0).length,
@@ -255,4 +262,3 @@ export async function GET(request: Request) {
     },
   });
 }
-
