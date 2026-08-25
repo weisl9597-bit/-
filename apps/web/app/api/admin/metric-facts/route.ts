@@ -3,6 +3,7 @@ import { normalizeBusinessSource } from '@designbao/domain/business-source';
 import { parseWorkbook } from '@designbao/importer/parse-workbook';
 import { metricCatalog } from '@designbao/metrics/catalog';
 import { buildMetricRowsFromUpload, calculateMetric } from '@designbao/metrics/calculate';
+import type { MetricRow } from '@designbao/metrics/calculate';
 import { createConfiguredObjectStore } from '@designbao/storage/s3';
 import { authenticateRequest } from '../../../../lib/auth/request-actor';
 
@@ -30,6 +31,22 @@ function dateKey(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+}
+
+function yes(value: unknown): boolean {
+  return ['是', '有', '已完成', '完成', '1', 'true'].includes(
+    String(value ?? '').trim().toLowerCase(),
+  );
+}
+
+function summarizeRows(rows: readonly MetricRow[]): Record<string, unknown> {
+  return {
+    rows: rows.length,
+    distinctProjects: new Set(rows.map((row) => row.sourceProjectId)).size,
+    assignmentCountSum: rows.reduce((sum, row) => sum + (row.assignmentCount ?? 0), 0),
+    openProjects: new Set(rows.filter((row) => yes(row.raw.T)).map((row) => row.sourceProjectId)).size,
+    groupOpenRows: rows.filter((row) => yes(row.raw.S)).length,
+  };
 }
 
 export async function GET(request: Request) {
@@ -76,6 +93,12 @@ export async function GET(request: Request) {
     merchantIds: merchants.map(({ id }) => id),
   });
   const designbaoRows = metricRows.filter((row) => row.businessSource === 'DESIGNBAO');
+  const acceptedDesignbaoAugust = designbaoRows.filter((row) => (
+    row.projectDate !== null
+      && row.projectDate !== undefined
+      && row.projectDate >= '2026-08-01'
+      && row.projectDate <= '2026-08-24'
+  ));
   const augustDates = Array.from({ length: 24 }, (_, index) =>
     `2026-08-${String(index + 1).padStart(2, '0')}`,
   );
@@ -146,6 +169,22 @@ export async function GET(request: Request) {
         max: designbaoRows.map((row) => row.projectDate).filter(Boolean).sort().at(-1) ?? null,
       },
       metricValues,
+      acceptedAugustAudit: {
+        all: summarizeRows(acceptedDesignbaoAugust),
+        byBusinessCategory: Object.fromEntries(
+          [...new Set(acceptedDesignbaoAugust.map((row) => String(row.raw.E ?? '<empty>').trim()))]
+            .sort()
+            .map((category) => [
+              category,
+              summarizeRows(acceptedDesignbaoAugust.filter(
+                (row) => String(row.raw.E ?? '<empty>').trim() === category,
+              )),
+            ]),
+        ),
+        byAssignmentCount: countBy(acceptedDesignbaoAugust.map((row) => row.assignmentCount)),
+        projectDates: countBy(acceptedDesignbaoAugust.map((row) => row.projectDate)),
+        assignmentDates: countBy(acceptedDesignbaoAugust.map((row) => row.assignmentDate)),
+      },
     },
   });
 }
