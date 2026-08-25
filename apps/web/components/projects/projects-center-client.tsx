@@ -32,7 +32,7 @@ export function ProjectsTable({
   items: ProjectListItem[];
   onOpen(item: ProjectListItem): void;
 }) {
-  return <section className="panel data-table"><table><thead><tr><th scope="col">项目ID</th><th scope="col">装企</th><th scope="col">分派时间</th><th scope="col">需辅导</th><th scope="col">已辅导</th><th scope="col">已改善</th><th scope="col" /></tr></thead><tbody>{items.map((item) => <tr key={`${item.id}:${item.businessSource}`}><td><strong>{item.sourceProjectId}</strong></td><td><strong>{item.merchantName || '未匹配装企'}</strong><small className="secondary-id">{item.merchantId}</small></td><td>{item.assignedAt.slice(0,10)}</td><td>{state(item.needsCoaching)}</td><td>{state(item.coached)}</td><td>{state(item.improved)}</td><td><button onClick={() => onOpen(item)}>查看详情</button></td></tr>)}</tbody></table>{items.length === 0 && <div className="empty-state operations-empty-state">暂无符合条件的项目</div>}</section>;
+  return <section className="panel data-table"><table><thead><tr><th scope="col">项目ID</th><th scope="col">装企</th><th scope="col">分派时间</th><th scope="col">需辅导</th><th scope="col">已辅导</th><th scope="col">已改善</th><th scope="col" /></tr></thead><tbody>{items.map((item) => <tr key={`${item.id}:${item.businessSource}:${item.merchantId}`}><td><strong>{item.sourceProjectId}</strong></td><td><strong>{item.merchantName || '未匹配装企'}</strong><small className="secondary-id">{item.merchantId}</small></td><td>{item.assignedAt.slice(0,10)}</td><td>{state(item.needsCoaching)}</td><td>{state(item.coached)}</td><td>{state(item.improved)}</td><td><button onClick={() => onOpen(item)}>查看详情</button></td></tr>)}</tbody></table>{items.length === 0 && <div className="empty-state operations-empty-state">暂无符合条件的项目</div>}</section>;
 }
 
 function normalizeDetail(
@@ -61,6 +61,9 @@ export function ProjectsCenterClient() {
   const [filterOptions, setFilterOptions] = useState<OperationsFilterOptions | null>(null);
   const [items, setItems] = useState<ProjectListItem[]>([]);
   const [abnormal, setAbnormal] = useState(true);
+  const [alert, setAlert] = useState<'COACHING' | 'IMPROVEMENT' | 'ABNORMAL' | ''>('');
+  const [assignedFrom, setAssignedFrom] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
   const [coached, setCoached] = useState('');
   const [improved, setImproved] = useState('');
   const [initialized, setInitialized] = useState(false);
@@ -68,6 +71,9 @@ export function ProjectsCenterClient() {
   const [detailTarget, setDetailTarget] = useState<ProjectListItem | null>(null);
   const load = () => {
     const extra: Record<string, string> = { abnormal: String(abnormal) };
+    if (alert) extra.alert = alert;
+    if (assignedFrom) extra.assignedFrom = assignedFrom;
+    if (assignedTo) extra.assignedTo = assignedTo;
     if (coached) extra.coached = coached;
     if (improved) extra.improved = improved;
     const query = operations.toSearchParams(extra);
@@ -80,6 +86,7 @@ export function ProjectsCenterClient() {
     setDetailTarget(item);
     const query = operations.toSearchParams({ dataDate: item.dataDate });
     query.set('source', item.businessSource);
+    query.set('merchantId', item.merchantId);
     void fetch(`/api/projects/${encodeURIComponent(item.id)}?${query.toString()}`)
       .then(async (response) => {
         setDetail(normalizeDetail(await response.json() as ProjectDetailData | LegacyProjectDetailResponse));
@@ -88,6 +95,11 @@ export function ProjectsCenterClient() {
   useEffect(() => {
     const url = new URLSearchParams(window.location.search);
     setAbnormal(url.get('abnormal') !== 'false');
+    const incomingAlert = url.get('alert');
+    setAlert(incomingAlert === 'COACHING' || incomingAlert === 'IMPROVEMENT' || incomingAlert === 'ABNORMAL'
+      ? incomingAlert : '');
+    setAssignedFrom(url.get('assignedFrom') ?? '');
+    setAssignedTo(url.get('assignedTo') ?? '');
     setCoached(url.get('coached') ?? '');
     setImproved(url.get('improved') ?? '');
     setInitialized(true);
@@ -106,6 +118,9 @@ export function ProjectsCenterClient() {
   }, [
     initialized,
     abnormal,
+    alert,
+    assignedFrom,
+    assignedTo,
     coached,
     improved,
     operations.value.source,
@@ -115,8 +130,10 @@ export function ProjectsCenterClient() {
   ]);
   return <div><header className="page-heading"><div><p className="eyebrow">项目中心</p><h1>定位具体问题项目</h1><p>默认优先显示需辅导、未改善和辅导结果空白的项目。</p></div></header>
     {filterOptions?.enabled && <OperationsFilterBar controller={operations} options={filterOptions} />}
-    <section className="panel filter-bar"><select aria-label="辅导状态" value={coached} onChange={(event) => setCoached(event.target.value)}><option value="">全部辅导状态</option><option value="true">已辅导</option><option value="false">未辅导</option><option value="blank">辅导结果空白</option></select><select aria-label="改善状态" value={improved} onChange={(event) => setImproved(event.target.value)}><option value="">全部改善状态</option><option value="true">已改善</option><option value="false">未改善</option><option value="blank">改善结果空白</option></select><label className="switch"><input type="checkbox" checked={abnormal} onChange={(event) => setAbnormal(event.target.checked)} /><span>只看异常项目</span></label><button onClick={load}>查询</button></section>
+    {alert && <section className="panel filter-bar"><strong>首页预警明细：近72小时内分派的{alert === 'COACHING' ? '待辅导项目' : alert === 'IMPROVEMENT' ? '未改善项目' : '异常项目'}</strong><button onClick={() => { setAlert(''); setAssignedFrom(''); setAssignedTo(''); }}>返回常规筛选</button></section>}
+    <section className="panel filter-bar"><select aria-label="辅导状态" value={coached} onChange={(event) => { setAlert(''); setCoached(event.target.value); }}><option value="">全部辅导状态</option><option value="true">已辅导</option><option value="false">未辅导</option><option value="blank">辅导结果空白</option></select><select aria-label="改善状态" value={improved} onChange={(event) => { setAlert(''); setImproved(event.target.value); }}><option value="">全部改善状态</option><option value="true">已改善</option><option value="false">未改善</option><option value="blank">改善结果空白</option></select><label className="switch"><input type="checkbox" checked={abnormal} onChange={(event) => { setAlert(''); setAbnormal(event.target.checked); }} /><span>只看异常项目</span></label><button onClick={load}>查询</button></section>
     <ProjectsTable items={items} onOpen={open} />
     {detail && <aside className="detail-drawer"><button className="drawer-close" onClick={() => { setDetail(null); setDetailTarget(null); }}>×</button><ProjectDetail project={detail} filters={operations} /></aside>}
   </div>;
 }
+
