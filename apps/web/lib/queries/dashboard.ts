@@ -1,11 +1,12 @@
 import { db } from '@designbao/db/client';
-import type { SelectableBusinessSource } from '@designbao/domain/business-source';
+import type { ActualBusinessSource, SelectableBusinessSource } from '@designbao/domain/business-source';
 import type { OrganizationScope } from '../auth/scope';
 import type { OperationsFilter } from './operations-filters';
 import {
   resolveOperationsSelection,
   type OperationsSelection,
 } from './operations-scope';
+import { projectAlertIdentityKey } from './projects';
 
 export type DashboardClassification =
   | 'A' | 'A_RISK' | 'B' | 'C_CANDIDATE' | 'C' | 'ELIMINATED';
@@ -17,6 +18,7 @@ export type DashboardFacts = {
   projects: Array<{
     projectId: string;
     merchantId: string;
+    businessSource?: ActualBusinessSource;
     assignedAt: string;
     needsCoaching: boolean | null;
     coached: boolean | null;
@@ -68,7 +70,7 @@ export const legacyDashboardRepository: LegacyDashboardRepository = {
       db.projectSnapshot.findMany({
         where: { uploadBatchId: batch.id, organizationId },
         select: {
-          projectId: true, merchantId: true, assignedAt: true,
+          projectId: true, merchantId: true, businessSource: true, assignedAt: true,
           needsCoaching: true, coached: true, improved: true,
         },
       }),
@@ -86,7 +88,9 @@ export const legacyDashboardRepository: LegacyDashboardRepository = {
         merchantId, classification,
       })),
       projects: projects.map((project) => ({
-        ...project, assignedAt: project.assignedAt.toISOString(),
+        ...project,
+        businessSource: project.businessSource === 'XIAOHONGSHU' ? 'XIAOHONGSHU' : 'DESIGNBAO',
+        assignedAt: project.assignedAt.toISOString(),
       })),
     };
   },
@@ -112,7 +116,7 @@ export const prismaDashboardRepository: DashboardRepository = {
           : selection.source,
       },
       select: {
-        projectId: true, merchantId: true, assignedAt: true,
+        projectId: true, merchantId: true, businessSource: true, assignedAt: true,
         needsCoaching: true, coached: true, improved: true,
       },
     });
@@ -141,33 +145,56 @@ export const prismaDashboardRepository: DashboardRepository = {
         merchantId, classification,
       })),
       projects: projects.map((project) => ({
-        ...project, assignedAt: project.assignedAt.toISOString(),
+        ...project,
+        businessSource: project.businessSource === 'XIAOHONGSHU' ? 'XIAOHONGSHU' : 'DESIGNBAO',
+        assignedAt: project.assignedAt.toISOString(),
       })),
     };
   },
 };
 
-function projectsAssignedWithinLatest72Hours(facts: DashboardFacts) {
-  if (!facts.dataDate) return [];
-  const endExclusive = new Date(`${facts.dataDate}T00:00:00.000Z`);
+function latest72HourWindow(dataDate: string | null) {
+  if (!dataDate) return null;
+  const endExclusive = new Date(`${dataDate}T00:00:00.000Z`);
   endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
   const startInclusive = new Date(endExclusive);
   startInclusive.setUTCDate(startInclusive.getUTCDate() - 3);
+  return { startInclusive, endExclusive };
+}
+
+function projectsAssignedWithinLatest72Hours(facts: DashboardFacts) {
+  const window = latest72HourWindow(facts.dataDate);
+  if (!window) return [];
   return facts.projects.filter((project) => {
     const assignedAt = new Date(project.assignedAt);
     return !Number.isNaN(assignedAt.getTime())
-      && assignedAt >= startInclusive
-      && assignedAt < endExclusive;
+      && assignedAt >= window.startInclusive
+      && assignedAt < window.endExclusive;
+  });
+}
+
+function uniqueProjects<T extends DashboardFacts['projects'][number]>(projects: T[]) {
+  const seen = new Set<string>();
+  return projects.filter((project) => {
+    const key = projectAlertIdentityKey({
+      id: project.projectId,
+      merchantId: project.merchantId,
+      businessSource: project.businessSource ?? 'DESIGNBAO',
+    });
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
 }
 
 function buildDashboard(facts: DashboardFacts, source: SelectableBusinessSource) {
   const recentProjects = projectsAssignedWithinLatest72Hours(facts);
-  const coaching = recentProjects.filter((project) => project.needsCoaching === true && project.coached === null);
-  const improvement = recentProjects.filter((project) => project.improved === false);
-  const projects = recentProjects.filter((project) =>
+  const coaching = uniqueProjects(recentProjects.filter((project) => project.needsCoaching === true && project.coached === null));
+  const improvement = uniqueProjects(recentProjects.filter((project) => project.improved === false));
+  const projects = uniqueProjects(recentProjects.filter((project) =>
     project.needsCoaching === true || project.improved === false || project.coached === null,
-  );
+  ));
+  const window = latest72HourWindow(facts.dataDate);
   const merchantStructure = facts.classifications.reduce<Record<DashboardClassification, number>>(
     (counts, item) => ({ ...counts, [item.classification]: counts[item.classification] + 1 }),
     { A: 0, A_RISK: 0, B: 0, C_CANDIDATE: 0, C: 0, ELIMINATED: 0 },
@@ -175,10 +202,14 @@ function buildDashboard(facts: DashboardFacts, source: SelectableBusinessSource)
   return {
     source,
     dataDate: facts.dataDate,
+    alertWindow: window ? {
+      assignedFrom: window.startInclusive.toISOString().slice(0, 10),
+      assignedTo: window.endExclusive.toISOString().slice(0, 10),
+    } : null,
     hasProjects: facts.projects.length > 0,
     summary: {
       merchantTotal: facts.merchantTotal,
-      abnormalProjects: new Set(projects.map((project) => project.projectId)).size,
+      abnormalProjects: projects.length,
       coachingDue: coaching.length,
       unimproved: improvement.length,
     },
@@ -218,3 +249,4 @@ export async function getDashboardForRollout(
     ? getDashboard(filter, scope, dependencies.repository, dependencies.resolveSelection)
     : getLegacyDashboard(scope, dependencies.legacyRepository);
 }
+
