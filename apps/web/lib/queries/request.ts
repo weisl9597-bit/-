@@ -22,6 +22,11 @@ function triState(value: string | null): boolean | null | undefined {
   throw new Error(`Invalid tri-state value: ${value}`);
 }
 
+function optionalDate(url: URL, name: string): Date | undefined {
+  const value = url.searchParams.get(name);
+  return value ? date.parse(value) : undefined;
+}
+
 export function parseMetricRequest(url: URL): MetricCenterQuery {
   const ids = (url.searchParams.get('metricIds') ?? '')
     .split(',').map((value) => value.trim()).filter(Boolean);
@@ -56,13 +61,26 @@ export function parseProjectRequest(url: URL): ProjectListQuery {
   if (abnormal !== null && !['true', 'false'].includes(abnormal)) {
     throw new Error('Invalid abnormal value');
   }
+  const alertValue = url.searchParams.get('alert');
+  const alert = alertValue === null || alertValue === ''
+    ? undefined
+    : z.enum(['COACHING', 'IMPROVEMENT', 'ABNORMAL']).parse(alertValue);
+  const assignedFrom = optionalDate(url, 'assignedFrom');
+  const assignedTo = optionalDate(url, 'assignedTo');
+  if (assignedFrom && assignedTo && assignedFrom >= assignedTo) {
+    throw new Error('assignedFrom must be before assignedTo');
+  }
   return {
     ...parseOperationsFilter(url),
     cursor: url.searchParams.get('cursor'),
     limit: optionalInteger(url, 'limit'),
     abnormal: abnormal === null ? undefined : abnormal === 'true',
+    alert,
+    assignedFrom,
+    assignedTo,
     merchantId: url.searchParams.get('merchantId') || undefined,
     coached: triState(url.searchParams.get('coached')),
     improved: triState(url.searchParams.get('improved')),
   };
 }
+
