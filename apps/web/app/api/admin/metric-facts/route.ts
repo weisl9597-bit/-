@@ -36,6 +36,14 @@ function dateKey(value: unknown): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
 }
 
+function workbookDateKey(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return new Date(Date.UTC(1899, 11, 30) + Math.round(value * 86_400_000))
+      .toISOString().slice(0, 10);
+  }
+  return dateKey(value);
+}
+
 function yes(value: unknown): boolean {
   return ['是', '有', '已完成', '完成', '1', 'true'].includes(
     String(value ?? '').trim().toLowerCase(),
@@ -147,10 +155,12 @@ export async function GET(request: Request) {
     ? await inspectWorkbookAugustMetricValues(workbookBuffer)
     : [];
   const parsedAugust = parsedWorkbook?.projects.filter((row) => {
-    const assignedAt = dateKey(row.assignedAt);
-    return assignedAt !== null
-      && assignedAt >= '2026-08-01'
-      && assignedAt <= '2026-08-24';
+    // Keep this audit on the same G-column "分派时间1" axis as
+    // dispatch_project_count. `assignedAt` is the operational H-column date.
+    const projectDate = workbookDateKey(row.raw.G);
+    return projectDate !== null
+      && projectDate >= '2026-08-01'
+      && projectDate <= '2026-08-24';
   }) ?? [];
   const parsedDesignbaoAugust = parsedAugust.filter((row) => (
     normalizeBusinessSource(row.businessSourceRaw ?? row.category ?? row.raw.F) === 'DESIGNBAO'
@@ -172,9 +182,9 @@ export async function GET(request: Request) {
       designbaoAugustDistinctProjectIds: new Set(parsedDesignbaoAugust
         .map((row) => String(row.projectId ?? '').trim())
         .filter(Boolean)).size,
-      designbaoAugustDateRange: {
-        min: parsedDesignbaoAugust.map((row) => dateKey(row.assignedAt)).filter(Boolean).sort()[0] ?? null,
-        max: parsedDesignbaoAugust.map((row) => dateKey(row.assignedAt)).filter(Boolean).sort().at(-1) ?? null,
+      designbaoProjectDateRange: {
+        min: parsedDesignbaoAugust.map((row) => workbookDateKey(row.raw.G)).filter(Boolean).sort()[0] ?? null,
+        max: parsedDesignbaoAugust.map((row) => workbookDateKey(row.raw.G)).filter(Boolean).sort().at(-1) ?? null,
       },
       cachedAugustMetrics,
     } : null,
@@ -262,3 +272,4 @@ export async function GET(request: Request) {
     },
   });
 }
+
