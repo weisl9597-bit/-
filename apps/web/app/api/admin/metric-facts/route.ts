@@ -1,6 +1,9 @@
 import { db } from '@designbao/db/client';
+import { normalizeBusinessSource } from '@designbao/domain/business-source';
+import { parseWorkbook } from '@designbao/importer/parse-workbook';
 import { metricCatalog } from '@designbao/metrics/catalog';
 import { buildMetricRowsFromUpload, calculateMetric } from '@designbao/metrics/calculate';
+import { createConfiguredObjectStore } from '@designbao/storage/s3';
 import { authenticateRequest } from '../../../../lib/auth/request-actor';
 
 export const dynamic = 'force-dynamic';
@@ -20,6 +23,15 @@ function countBy(values: readonly unknown[]): Record<string, number> {
   }, {});
 }
 
+function dateKey(value: unknown): string | null {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value !== 'string') return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+}
+
 export async function GET(request: Request) {
   const actor = await authenticateRequest(request);
   if (!actor) return Response.json({ error: 'UNAUTHORIZED' }, { status: 401 });
@@ -27,7 +39,13 @@ export async function GET(request: Request) {
 
   const latestBatch = await db.uploadBatch.findFirst({
     where: { status: 'SUCCEEDED' },
-    select: { id: true, dataDate: true, totalRows: true, acceptedRows: true },
+    select: {
+      id: true,
+      dataDate: true,
+      totalRows: true,
+      acceptedRows: true,
+      objectKey: true,
+    },
     orderBy: [{ dataDate: 'desc' }, { createdAt: 'desc' }],
   });
   if (!latestBatch) return Response.json({ latestBatch: null });
@@ -69,12 +87,41 @@ export async function GET(request: Request) {
     ),
   }));
 
+  const workbookBuffer = latestBatch.objectKey
+    ? await createConfiguredObjectStore().getObject(latestBatch.objectKey)
+    : null;
+  const parsedWorkbook = workbookBuffer ? await parseWorkbook(workbookBuffer) : null;
+  const parsedAugust = parsedWorkbook?.projects.filter((row) => {
+    const assignedAt = dateKey(row.assignedAt);
+    return assignedAt !== null
+      && assignedAt >= '2026-08-01'
+      && assignedAt <= '2026-08-24';
+  }) ?? [];
+  const parsedDesignbaoAugust = parsedAugust.filter((row) => (
+    normalizeBusinessSource(row.businessSourceRaw ?? row.category ?? row.raw.F) === 'DESIGNBAO'
+  ));
+
   return Response.json({
     latestBatch: {
       dataDate: latestBatch.dataDate.toISOString().slice(0, 10),
       totalRows: latestBatch.totalRows,
       acceptedRows: latestBatch.acceptedRows,
     },
+    sourceWorkbook: parsedWorkbook ? {
+      projectHeaders: parsedWorkbook.projectHeaders,
+      parsedRows: parsedWorkbook.projects.length,
+      augustRowsBySource: countBy(parsedAugust.map((row) => (
+        normalizeBusinessSource(row.businessSourceRaw ?? row.category ?? row.raw.F)
+      ))),
+      designbaoAugustRows: parsedDesignbaoAugust.length,
+      designbaoAugustDistinctProjectIds: new Set(parsedDesignbaoAugust
+        .map((row) => String(row.projectId ?? '').trim())
+        .filter(Boolean)).size,
+      designbaoAugustDateRange: {
+        min: parsedDesignbaoAugust.map((row) => dateKey(row.assignedAt)).filter(Boolean).sort()[0] ?? null,
+        max: parsedDesignbaoAugust.map((row) => dateKey(row.assignedAt)).filter(Boolean).sort().at(-1) ?? null,
+      },
+    } : null,
     storedRows: uploadRows.length,
     canonicalRows: canonicalRecords.filter((row) => Object.keys(row).length > 0).length,
     rawShape: {
