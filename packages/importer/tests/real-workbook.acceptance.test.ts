@@ -51,17 +51,17 @@ function toMetricRows(
       sourceProjectId,
       organizationIds: ['national'],
       merchantId,
-      dataDate: workbookDate(record.raw.H) ?? '2026-08-23',
-      projectDate: workbookDate(record.raw.H),
-      assignmentDate: workbookDate(record.raw.I),
-      signedDate: workbookDate(record.raw.AL),
-      assignmentCount: Number(record.raw.J) || 0,
+      dataDate: workbookDate(record.assignedAt ?? record.raw.G) ?? '2026-08-23',
+      projectDate: workbookDate(record.assignedAt ?? record.raw.G),
+      assignmentDate: workbookDate(record.raw.H),
+      signedDate: workbookDate(record.raw.AJ),
+      assignmentCount: Number(record.raw.I) || 0,
       businessSource: normalizeBusinessSource(
         record.businessSourceRaw ?? record.category ?? record.raw.F,
       ),
-      followWithin30m: yes(record.raw.N),
-      needsAnalyzed: yes(record.raw.O),
-      hardInvite: yes(record.raw.P),
+      followWithin30m: yes(record.followWithin30m ?? record.raw.M),
+      needsAnalyzed: yes(record.needsAnalyzed ?? record.raw.N),
+      hardInvite: yes(record.hardInvite ?? record.raw.O),
       needsCoaching: null,
       coached: null,
       improved: null,
@@ -195,3 +195,4 @@ describe.skipIf(!sourceFile)('supplied Designbao workbook', () => {
     })).toBe(expectedAll);
   });
 });
+

@@ -11,22 +11,25 @@ function definition(id: string) {
 
 const rows: MetricRow[] = [
   {
+    rowId: 'upload-row-1',
     assignmentId: 'P1::M1', sourceProjectId: 'P1', organizationIds: ['city-1'],
     merchantId: 'M1', dataDate: '2026-08-21', businessSource: 'DESIGNBAO', followWithin30m: true,
     needsAnalyzed: true, hardInvite: false, coached: true,
-    raw: { T: '是', U: '是', S: '有详细需求有户型图', X: '还不错', AH: '是', AI: '是', AJ: 1 },
+    raw: { S: '是', T: '是', R: '有详细需求有户型图', U: '还不错', AG: '是', AH: '是', AJ: '2026/08/21' },
   },
   {
+    rowId: 'upload-row-2',
     assignmentId: 'P1::M2', sourceProjectId: 'P1', organizationIds: ['city-1'],
     merchantId: 'M2', dataDate: '2026-08-21', businessSource: 'DESIGNBAO', followWithin30m: true,
     needsAnalyzed: false, hardInvite: true, coached: null,
-    raw: { T: '否', U: '是', S: null, X: '差', AH: '是', AI: '是', AJ: 1 },
+    raw: { S: '否', T: '是', R: null, U: '差', AG: '是', AH: '是', AJ: '2026/08/21' },
   },
   {
+    rowId: 'upload-row-3',
     assignmentId: 'P2::M1', sourceProjectId: 'P2', organizationIds: ['city-1'],
     merchantId: 'M1', dataDate: '2026-08-21', businessSource: 'DESIGNBAO', followWithin30m: false,
     needsAnalyzed: true, hardInvite: false, coached: null,
-    raw: { T: '是', U: '是', S: '无详细需求无户型图', X: '一般', AH: '否', AI: '否', AJ: 0 },
+    raw: { S: '是', T: '是', R: '无详细需求无户型图', U: '一般', AG: '否', AH: '否' },
   },
 ];
 
@@ -46,9 +49,9 @@ describe('metric calculation', () => {
       uploadRows: [{
         id: 'upload-row-1', sourceRow: 2,
         raw: {
-          A: '北京市', B: 'M1', D: 'P1', F: '设计宝', H: '2026/08/01',
-          I: '2026/08/02', J: 2, N: '是', O: '是', P: '否', T: '是', U: '是',
-          AL: '2026/08/03',
+          A: '北京市', B: 'M1', D: 'P1', F: '设计宝', G: '2026/08/01',
+          H: '2026/08/02', I: 2, M: '是', N: '是', O: '否', S: '是', T: '是',
+          AJ: '2026/08/03',
         },
         canonical: {
           city: '北京市', merchantId: 'M1', projectId: 'P1', assignmentId: 'P1::M1',
@@ -72,7 +75,7 @@ describe('metric calculation', () => {
       businessSource: 'DESIGNBAO', projectDate: '2026-08-01', assignmentDate: '2026-08-02',
       signedDate: '2026-08-03', assignmentCount: 2,
       followWithin30m: true, needsAnalyzed: true, hardInvite: false,
-      raw: expect.objectContaining({ T: '是', U: '是' }),
+      raw: expect.objectContaining({ S: '是', T: '是' }),
     })]);
   });
 
@@ -85,6 +88,12 @@ describe('metric calculation', () => {
     expect(calculateMetric(definition('dispatch_assignment_count'), rows)).toMatchObject({ value: 3 });
     expect(calculateMetric(definition('open_project_count'), rows)).toMatchObject({ value: 2 });
     expect(calculateMetric(definition('group_open_count'), rows)).toMatchObject({ value: 2 });
+  });
+
+  it('deduplicates project metrics by project ID even when every stored row has its own row ID', () => {
+    expect(rows[0]?.rowId).not.toBe(rows[1]?.rowId);
+    expect(rows[0]?.sourceProjectId).toBe(rows[1]?.sourceProjectId);
+    expect(calculateMetric(definition('dispatch_project_count'), rows)).toMatchObject({ value: 2 });
   });
 
   it('calculates SOP counts and strict yes-yes-no compliance from assignment facts', () => {
@@ -103,7 +112,7 @@ describe('metric calculation', () => {
       assignmentDate: '2026-08-02', signedDate: '2026-08-03', assignmentCount: 2,
       businessSource: 'DESIGNBAO', followWithin30m: true, needsAnalyzed: true,
       hardInvite: false, coached: true,
-      raw: { U: '是', T: '是', AB: '是', AH: '是', AI: '是', AJ: '已收定', V: '还不错', Y: '已辅导' },
+      raw: { S: '是', T: '是', AA: '是', AG: '是', AH: '是', AJ: '2026/08/03', U: '还不错', X: '已辅导' },
     }] as MetricRow[];
 
     expect(calculateMetric(definition('dispatch_project_count'), workbookRows, '2026-08-01').value).toBe(1);

@@ -48,6 +48,24 @@ export type MetricOrganizationNode = {
   } | null;
 };
 
+const workbookColumns = {
+  projectDate: 'G',
+  assignmentDate: 'H',
+  assignmentCount: 'I',
+  followWithin30m: 'M',
+  needsAnalyzed: 'N',
+  hardInvite: 'O',
+  sync: 'R',
+  groupOpen: 'S',
+  projectOpen: 'T',
+  quality: 'U',
+  coachingResult: 'X',
+  projectExited: 'AA',
+  projectPk: 'AG',
+  projectHandshake: 'AH',
+  signedDate: 'AJ',
+} as const;
+
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -92,8 +110,8 @@ export function buildMetricRowsFromUpload(input: {
   return input.uploadRows.flatMap((uploadRow): MetricRow[] => {
     const raw = record(uploadRow.raw);
     const canonical = record(uploadRow.canonical);
-    const projectDate = workbookDate(raw.H)
-      ?? workbookDate(canonical.assignedAt)
+    const projectDate = workbookDate(canonical.assignedAt)
+      ?? workbookDate(raw[workbookColumns.projectDate])
       ?? input.dataDate;
     const cityName = String(canonical.city || raw.A || '').trim();
     const city = cityByName.get(cityName);
@@ -108,7 +126,7 @@ export function buildMetricRowsFromUpload(input: {
     const merchantId = merchantIds.has(rawMerchantId) ? rawMerchantId : '';
     const sourceProjectId = String(canonical.projectId || raw.D || '').trim()
       || `row:${uploadRow.sourceRow}`;
-    const numericAssignmentCount = Number(raw.J);
+    const numericAssignmentCount = Number(raw[workbookColumns.assignmentCount]);
 
     return [{
       rowId: uploadRow.id,
@@ -119,13 +137,17 @@ export function buildMetricRowsFromUpload(input: {
       merchantId,
       dataDate: projectDate,
       projectDate,
-      assignmentDate: workbookDate(raw.I) ?? projectDate,
-      signedDate: workbookDate(raw.AL),
+      assignmentDate: workbookDate(raw[workbookColumns.assignmentDate]) ?? projectDate,
+      signedDate: workbookDate(raw[workbookColumns.signedDate]),
       assignmentCount: Number.isFinite(numericAssignmentCount) ? numericAssignmentCount : 0,
       businessSource: normalizeBusinessSource(canonical.businessSource ?? raw.F),
-      followWithin30m: optionalBoolean(canonical.followWithin30m ?? raw.N),
-      needsAnalyzed: optionalBoolean(canonical.needsAnalyzed ?? raw.O),
-      hardInvite: optionalBoolean(canonical.hardInvite ?? raw.P),
+      followWithin30m: optionalBoolean(
+        canonical.followWithin30m ?? raw[workbookColumns.followWithin30m],
+      ),
+      needsAnalyzed: optionalBoolean(
+        canonical.needsAnalyzed ?? raw[workbookColumns.needsAnalyzed],
+      ),
+      hardInvite: optionalBoolean(canonical.hardInvite ?? raw[workbookColumns.hardInvite]),
       needsCoaching: optionalBoolean(canonical.needsCoaching),
       coached: optionalBoolean(canonical.coached),
       improved: optionalBoolean(canonical.improved),
@@ -158,10 +180,6 @@ function yes(value: unknown): boolean {
   return value === true || ['是', '有', '已完成', '完成', '已签约', '1', 'true'].includes(token(value));
 }
 
-function signed(value: unknown): boolean {
-  return ['是', '已收定'].includes(token(value));
-}
-
 type ProjectFact = {
   rows: MetricRow[];
   open: boolean;
@@ -175,24 +193,24 @@ type ProjectFact = {
 function projectFacts(rows: MetricRow[]): ProjectFact[] {
   const grouped = new Map<string, MetricRow[]>();
   for (const row of rows) {
-    const key = row.rowId ?? row.sourceProjectId;
+    const key = row.sourceProjectId || row.rowId || row.assignmentId;
     const values = grouped.get(key) ?? [];
     values.push(row);
     grouped.set(key, values);
   }
   return [...grouped.values()].map((values) => ({
     rows: values,
-    open: values.some((row) => yes(row.raw.U)),
-    exited: values.some((row) => yes(row.raw.AB)),
-    pk: values.some((row) => yes(row.raw.AH)),
-    handshake: values.some((row) => yes(row.raw.AI)),
-    signed: values.some((row) => signed(row.raw.AJ)),
-    sync: values.map((row) => token(row.raw.S)).find(Boolean) ?? '',
+    open: values.some((row) => yes(row.raw[workbookColumns.projectOpen])),
+    exited: values.some((row) => yes(row.raw[workbookColumns.projectExited])),
+    pk: values.some((row) => yes(row.raw[workbookColumns.projectPk])),
+    handshake: values.some((row) => yes(row.raw[workbookColumns.projectHandshake])),
+    signed: values.some((row) => Boolean(row.signedDate)),
+    sync: values.map((row) => token(row.raw[workbookColumns.sync])).find(Boolean) ?? '',
   }));
 }
 
 function qualityCount(rows: MetricRow[], quality: string): number {
-  return rows.filter((row) => token(row.raw.V) === quality).length;
+  return rows.filter((row) => token(row.raw[workbookColumns.quality]) === quality).length;
 }
 
 function rowsOn(
@@ -222,7 +240,7 @@ export function calculateMetric(
     0,
   );
   const openProjects = projects.filter((project) => project.open).length;
-  const groupOpen = assignmentRows.filter((row) => yes(row.raw.T)).length;
+  const groupOpen = assignmentRows.filter((row) => yes(row.raw[workbookColumns.groupOpen])).length;
   const exited = projects.filter((project) => project.exited).length;
   const pk = projects.filter((project) => project.pk).length;
   const handshake = projects.filter((project) => project.handshake).length;
@@ -280,9 +298,15 @@ export function calculateMetric(
     case 'quality_average_count': return count(average);
     case 'quality_poor_count': return count(poor);
     case 'quality_poor_coached_count':
-      return count(assignmentRows.filter((row) => token(row.raw.V) === '差' && token(row.raw.Y) === '已辅导').length);
+      return count(assignmentRows.filter((row) =>
+        token(row.raw[workbookColumns.quality]) === '差'
+        && token(row.raw[workbookColumns.coachingResult]) === '已辅导'
+      ).length);
     case 'quality_poor_no_anomaly_count':
-      return count(assignmentRows.filter((row) => token(row.raw.V) === '差' && token(row.raw.Y) === '无异常').length);
+      return count(assignmentRows.filter((row) =>
+        token(row.raw[workbookColumns.quality]) === '差'
+        && token(row.raw[workbookColumns.coachingResult]) === '无异常'
+      ).length);
     case 'quality_good_rate': return rate(good, groupOpen);
     case 'merchant_sop_compliance_rate': return rate(compliant, dispatchAssignments);
     default: throw new Error(`未实现指标公式：${definition.id}`);
