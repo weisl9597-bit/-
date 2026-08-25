@@ -221,6 +221,29 @@ async function resolveSelectedSheetPaths(
   return result;
 }
 
+async function resolveWorkbookSheetPaths(zip: JSZip): Promise<Record<string, string>> {
+  const workbook = object((await readXml(zip, 'xl/workbook.xml')).workbook);
+  const sheets = asArray(object(workbook.sheets).sheet);
+  const relationships = object(
+    (await readXml(zip, 'xl/_rels/workbook.xml.rels')).Relationships,
+  );
+  const targetById = new Map(
+    asArray(relationships.Relationship).map((relationshipValue) => {
+      const relationship = object(relationshipValue);
+      return [text(relationship['@_Id']), text(relationship['@_Target'])] as const;
+    }),
+  );
+  return Object.fromEntries(sheets.flatMap((sheetValue) => {
+    const sheet = object(sheetValue);
+    const name = text(sheet['@_name']);
+    const relationshipId = text(sheet['@_id'] ?? sheet['@_r:id']);
+    const target = targetById.get(relationshipId);
+    return name && target
+      ? [[name, `xl/${target.replace(/^\/?xl\//, '').replace(/^\//, '')}`]]
+      : [];
+  }));
+}
+
 async function readSheet(
   zip: JSZip,
   path: string,
@@ -363,3 +386,52 @@ export async function parseWorkbook(buffer: Buffer): Promise<ParsedWorkbook> {
   };
 }
 
+export async function inspectWorkbookAugustMetricValues(buffer: Buffer): Promise<Array<{
+  sheet: string;
+  metric: string;
+  metricCell: string;
+  augustHeaderCell: string;
+  value: WorkbookCellValue;
+}>> {
+  const labels = new Set(['分派项目数', '分派次数', '开口项目数', '开口次数（群）']
+    .map((value) => normalizeHeader(value)));
+  const zip = await JSZip.loadAsync(buffer, { checkCRC32: true });
+  const paths = await resolveWorkbookSheetPaths(zip);
+  const sharedStrings = await readSharedStrings(zip);
+  const result: Array<{
+    sheet: string;
+    metric: string;
+    metricCell: string;
+    augustHeaderCell: string;
+    value: WorkbookCellValue;
+  }> = [];
+
+  for (const [sheetName, path] of Object.entries(paths)) {
+    const sheet = await readSheet(zip, path, sharedStrings);
+    const augustHeaders = [...sheet.rows.entries()].flatMap(([rowNumber, row]) =>
+      [...row.entries()]
+        .filter(([, value]) => normalizeHeader(value) === normalizeHeader('8月'))
+        .map(([column]) => ({ row: rowNumber, column })),
+    );
+    if (augustHeaders.length === 0) continue;
+
+    for (const [rowNumber, row] of sheet.rows) {
+      for (const [metricColumn, metricValue] of row) {
+        const metric = String(metricValue ?? '').trim();
+        if (!labels.has(normalizeHeader(metric))) continue;
+        const header = augustHeaders
+          .filter((candidate) => candidate.row <= rowNumber)
+          .sort((left, right) => (rowNumber - left.row) - (rowNumber - right.row))[0];
+        if (!header) continue;
+        result.push({
+          sheet: sheetName,
+          metric,
+          metricCell: `${columnName(metricColumn)}${rowNumber}`,
+          augustHeaderCell: `${columnName(header.column)}${header.row}`,
+          value: valueAt(sheet.rows.get(rowNumber) ?? new Map(), header.column),
+        });
+      }
+    }
+  }
+  return result;
+}
