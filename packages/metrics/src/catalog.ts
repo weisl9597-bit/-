@@ -7,6 +7,8 @@ export type MetricGroupId =
   | 'chat_quality'
   | 'management';
 
+export const METRIC_FORMULA_VERSION = 'v3' as const;
+
 export type MetricDefinition = {
   id: string;
   name: string;
@@ -16,7 +18,7 @@ export type MetricDefinition = {
   direction: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL';
   source: 'CALCULATED';
   sortOrder: number;
-  formulaVersion: 'v3';
+  formulaVersion: typeof METRIC_FORMULA_VERSION;
 };
 
 const groups: Record<MetricGroupId, string> = {
@@ -39,7 +41,7 @@ function metric(
 ): MetricDefinition {
   return {
     id, name, groupId, groupName: groups[groupId], unit, direction,
-    source: 'CALCULATED', sortOrder, formulaVersion: 'v3',
+    source: 'CALCULATED', sortOrder, formulaVersion: METRIC_FORMULA_VERSION,
   };
 }
 
