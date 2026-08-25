@@ -14,6 +14,9 @@ export type ProjectListQuery = {
   cursor?: string | null;
   limit?: number;
   abnormal?: boolean;
+  alert?: 'COACHING' | 'IMPROVEMENT' | 'ABNORMAL';
+  assignedFrom?: Date;
+  assignedTo?: Date;
   merchantId?: string;
   coached?: boolean | null;
   improved?: boolean | null;
@@ -75,42 +78,105 @@ function actualSourceWhere(source: SelectableBusinessSource) {
   return source === 'ALL' ? { in: ['DESIGNBAO', 'XIAOHONGSHU'] as ActualBusinessSource[] } : source;
 }
 
-function projectCursor(item: Pick<ProjectListItem, 'id' | 'businessSource'>): string {
-  return encodeURIComponent(JSON.stringify([item.id, item.businessSource]));
+function projectCursor(item: Pick<ProjectListItem, 'id' | 'businessSource' | 'merchantId'>): string {
+  return encodeURIComponent(JSON.stringify([item.id, item.businessSource, item.merchantId]));
 }
 
-function cursorValues(cursor: string): [string, string] | null {
+function cursorValues(cursor: string): [string, string, string] | null {
   try {
     const decoded = JSON.parse(decodeURIComponent(cursor)) as unknown;
-    return Array.isArray(decoded) && decoded.length === 2
-      && typeof decoded[0] === 'string' && typeof decoded[1] === 'string'
-      ? [decoded[0], decoded[1]] : null;
+    return Array.isArray(decoded) && decoded.length === 3
+      && typeof decoded[0] === 'string' && typeof decoded[1] === 'string' && typeof decoded[2] === 'string'
+      ? [decoded[0], decoded[1], decoded[2]] : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * The home-page cards and the project list both use this predicate.  Keeping
+ * it in one place prevents a card total from pointing to a different detail
+ * result set.
+ */
+export function matchesProjectListQuery(
+  item: Pick<ProjectListItem, 'assignedAt' | 'needsCoaching' | 'coached' | 'improved'>,
+  query: ProjectListQuery,
+): boolean {
+  const assignedAt = new Date(item.assignedAt);
+  if (Number.isNaN(assignedAt.getTime())) return false;
+  if (query.assignedFrom && assignedAt < query.assignedFrom) return false;
+  if (query.assignedTo && assignedAt >= query.assignedTo) return false;
+
+  if (query.alert === 'COACHING') return item.needsCoaching === true && item.coached === null;
+  if (query.alert === 'IMPROVEMENT') return item.improved === false;
+  if (query.alert === 'ABNORMAL') {
+    return item.needsCoaching === true || item.improved === false || item.coached === null;
+  }
+  if (query.abnormal && !(item.needsCoaching === true || item.improved === false || item.coached === null)) {
+    return false;
+  }
+  if (query.coached !== undefined && item.coached !== query.coached) return false;
+  if (query.improved !== undefined && item.improved !== query.improved) return false;
+  return true;
+}
+
+/**
+ * A source project ID is not globally unique: the same ID can occur under
+ * different merchants (and, when viewing all data, under different sources).
+ * The dashboard and alert detail list must therefore use this same identity.
+ */
+export function projectAlertIdentityKey(item: Pick<ProjectListItem, 'id' | 'merchantId' | 'businessSource'>): string {
+  return `${item.businessSource}:${item.merchantId}:${item.id}`;
+}
+
+function uniqueAlertProjects(items: ProjectListItem[], query: ProjectListQuery) {
+  if (!query.alert) return items;
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = projectAlertIdentityKey(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function paginateProjectItems(items: ProjectListItem[], query: ProjectListQuery) {
+  let filtered = uniqueAlertProjects(items.filter((item) => matchesProjectListQuery(item, query)), query);
+  filtered.sort((left, right) => (
+    left.id.localeCompare(right.id)
+      || left.businessSource.localeCompare(right.businessSource)
+      || left.merchantId.localeCompare(right.merchantId)
+  ));
+  if (query.cursor) {
+    const cursor = cursorValues(query.cursor);
+    if (cursor) {
+      filtered = filtered.filter((item) => (
+        item.id > cursor[0]
+          || (item.id === cursor[0] && item.businessSource > cursor[1])
+          || (item.id === cursor[0] && item.businessSource === cursor[1] && item.merchantId > cursor[2])
+      ));
+    }
+  }
+  const limit = query.limit ?? 50;
+  const hasMore = filtered.length > limit;
+  const page = hasMore ? filtered.slice(0, limit) : filtered;
+  return {
+    items: page,
+    nextCursor: hasMore && page.length > 0 ? projectCursor(page[page.length - 1]!) : null,
+  };
 }
 
 export const legacyProjectListRepository: LegacyProjectListRepository = {
   async list(query) {
     const rows = await db.project.findMany({
       where: {
-        id: query.cursor ? { gt: query.cursor } : undefined,
         organizationId: query.organizationIds ? { in: query.organizationIds } : undefined,
         merchantId: query.merchantId,
-        coached: query.coached,
-        improved: query.improved,
-        OR: query.abnormal
-          ? [{ needsCoaching: true }, { improved: false }, { coached: null }]
-          : undefined,
       },
       orderBy: { id: 'asc' },
-      take: query.limit + 1,
       include: { merchant: { select: { name: true } } },
     });
-    const hasMore = rows.length > query.limit;
-    const page = hasMore ? rows.slice(0, query.limit) : rows;
-    return {
-      items: page.map((row) => ({
+    return paginateProjectItems(rows.map((row) => ({
         id: row.id,
         sourceProjectId: row.sourceProjectId,
         merchantId: row.merchantId,
@@ -122,9 +188,7 @@ export const legacyProjectListRepository: LegacyProjectListRepository = {
         needsCoaching: row.needsCoaching,
         coached: row.coached,
         improved: row.improved,
-      })),
-      nextCursor: hasMore ? page.at(-1)?.id ?? null : null,
-    };
+      })), query);
   },
 };
 
@@ -142,11 +206,6 @@ export const prismaProjectListRepository: ProjectListRepository = {
         organizationId: selectedOrganizations(query.selection),
         ...(query.selection.merchantId ? { merchantId: query.selection.merchantId } : {}),
         businessSource: actualSourceWhere(query.selection.source),
-        coached: query.coached,
-        improved: query.improved,
-        OR: query.abnormal
-          ? [{ needsCoaching: true }, { improved: false }, { coached: null }]
-          : undefined,
       },
       select: {
         projectId: true,
@@ -179,23 +238,7 @@ export const prismaProjectListRepository: ProjectListRepository = {
         }]
         : []
     ));
-    items.sort((left, right) => (
-      left.id.localeCompare(right.id) || left.businessSource.localeCompare(right.businessSource)
-    ));
-    if (query.cursor) {
-      const cursor = cursorValues(query.cursor);
-      if (cursor) {
-        items = items.filter((item) => (
-          item.id > cursor[0] || (item.id === cursor[0] && item.businessSource > cursor[1])
-        ));
-      }
-    }
-    const hasMore = items.length > query.limit;
-    const page = hasMore ? items.slice(0, query.limit) : items;
-    return {
-      items: page,
-      nextCursor: hasMore && page.length > 0 ? projectCursor(page[page.length - 1]!) : null,
-    };
+    return paginateProjectItems(items, query);
   },
 };
 
