@@ -99,6 +99,12 @@ export async function GET(request: Request) {
       && row.projectDate >= '2026-08-01'
       && row.projectDate <= '2026-08-24'
   ));
+  const acceptedDesignbaoAssignmentAugust = designbaoRows.filter((row) => (
+    row.assignmentDate !== null
+      && row.assignmentDate !== undefined
+      && row.assignmentDate >= '2026-08-01'
+      && row.assignmentDate <= '2026-08-24'
+  ));
   const augustDates = Array.from({ length: 24 }, (_, index) =>
     `2026-08-${String(index + 1).padStart(2, '0')}`,
   );
@@ -170,14 +176,15 @@ export async function GET(request: Request) {
       },
       metricValues,
       acceptedAugustAudit: {
-        all: summarizeRows(acceptedDesignbaoAugust),
+        byProjectDate: summarizeRows(acceptedDesignbaoAugust),
+        byAssignmentDate: summarizeRows(acceptedDesignbaoAssignmentAugust),
         byBusinessCategory: Object.fromEntries(
-          [...new Set(acceptedDesignbaoAugust.map((row) => String(row.raw.E ?? '<empty>').trim()))]
+          [...new Set(acceptedDesignbaoAugust.map((row) => String(row.raw.F ?? '<empty>').trim()))]
             .sort()
             .map((category) => [
               category,
               summarizeRows(acceptedDesignbaoAugust.filter(
-                (row) => String(row.raw.E ?? '<empty>').trim() === category,
+                (row) => String(row.raw.F ?? '<empty>').trim() === category,
               )),
             ]),
         ),
