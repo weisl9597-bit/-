@@ -115,6 +115,11 @@ export async function GET(request: Request) {
       .map((row) => row.sourceProjectId)
       .filter((projectId) => xiaohongshuProjectIds.has(projectId)),
   );
+  const assignedProjectIds = new Set(
+    acceptedDesignbaoAssignmentAugust
+      .filter((row) => (row.assignmentCount ?? 0) > 0)
+      .map((row) => row.sourceProjectId),
+  );
   const augustDates = Array.from({ length: 24 }, (_, index) =>
     `2026-08-${String(index + 1).padStart(2, '0')}`,
   );
@@ -195,6 +200,14 @@ export async function GET(request: Request) {
           )),
           designbaoOnlyRows: summarizeRows(acceptedDesignbaoAssignmentAugust.filter(
             (row) => !sharedSourceProjectIds.has(row.sourceProjectId),
+          )),
+        },
+        assignmentEligibility: {
+          assignedProjects: summarizeRows(acceptedDesignbaoAssignmentAugust.filter(
+            (row) => assignedProjectIds.has(row.sourceProjectId),
+          )),
+          zeroOnlyProjects: summarizeRows(acceptedDesignbaoAssignmentAugust.filter(
+            (row) => !assignedProjectIds.has(row.sourceProjectId),
           )),
         },
         byBusinessCategory: Object.fromEntries(
