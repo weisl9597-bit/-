@@ -49,6 +49,11 @@ function summarizeRows(rows: readonly MetricRow[]): Record<string, unknown> {
   };
 }
 
+function nonEmptyKey(value: unknown): string | null {
+  const key = String(value ?? '').trim();
+  return key || null;
+}
+
 export async function GET(request: Request) {
   const actor = await authenticateRequest(request);
   if (!actor) return Response.json({ error: 'UNAUTHORIZED' }, { status: 401 });
@@ -209,6 +214,29 @@ export async function GET(request: Request) {
           zeroOnlyProjects: summarizeRows(acceptedDesignbaoAssignmentAugust.filter(
             (row) => !assignedProjectIds.has(row.sourceProjectId),
           )),
+        },
+        businessKeyAudit: {
+          distinctProjectIds: new Set(acceptedDesignbaoAssignmentAugust
+            .map((row) => row.sourceProjectId)).size,
+          distinctProjectAddresses: new Set(acceptedDesignbaoAssignmentAugust
+            .map((row) => nonEmptyKey(row.raw.E))
+            .filter((value): value is string => value !== null)).size,
+          openProjectIds: new Set(acceptedDesignbaoAssignmentAugust
+            .filter((row) => yes(row.raw.T))
+            .map((row) => row.sourceProjectId)).size,
+          openProjectAddresses: new Set(acceptedDesignbaoAssignmentAugust
+            .filter((row) => yes(row.raw.T))
+            .map((row) => nonEmptyKey(row.raw.E))
+            .filter((value): value is string => value !== null)).size,
+          groupOpenRows: acceptedDesignbaoAssignmentAugust.filter(
+            (row) => yes(row.raw.S),
+          ).length,
+          groupOpenAssignmentIds: new Set(acceptedDesignbaoAssignmentAugust
+            .filter((row) => yes(row.raw.S))
+            .map((row) => row.assignmentId)).size,
+          groupOpenAddressMerchantKeys: new Set(acceptedDesignbaoAssignmentAugust
+            .filter((row) => yes(row.raw.S))
+            .map((row) => `${nonEmptyKey(row.raw.E) ?? row.sourceProjectId}::${row.merchantId}`)).size,
         },
         byBusinessCategory: Object.fromEntries(
           [...new Set(acceptedDesignbaoAugust.map((row) => String(row.raw.F ?? '<empty>').trim()))]
