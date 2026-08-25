@@ -495,3 +495,4 @@ export async function getLegacyMerchantDetail(id: string, scope: OrganizationSco
     },
   });
 }
+
