@@ -21,6 +21,9 @@ function countBy<T>(items: T[], key: (item: T) => string): Record<string, number
 }
 
 function workbookDate(value: unknown): string | null {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
     return new Date(Date.UTC(1899, 11, 30) + Math.round(value * 86_400_000)).toISOString().slice(0, 10);
   }
@@ -51,10 +54,12 @@ function toMetricRows(
       sourceProjectId,
       organizationIds: ['national'],
       merchantId,
-      dataDate: workbookDate(record.assignedAt ?? record.raw.G) ?? '2026-08-23',
-      projectDate: workbookDate(record.assignedAt ?? record.raw.G),
+      // Metric formulas mirror Excel COUNTIFS, so merged child rows must keep
+      // their originally blank project-date cell instead of the expanded value.
+      dataDate: workbookDate(record.raw.G) ?? '2026-08-23',
+      projectDate: workbookDate(record.raw.G),
       assignmentDate: workbookDate(record.raw.H),
-      signedDate: workbookDate(record.raw.AJ),
+      signedDate: workbookDate(record.raw.AK),
       assignmentCount: Number(record.raw.I) || 0,
       businessSource: normalizeBusinessSource(
         record.businessSourceRaw ?? record.category ?? record.raw.F,
@@ -140,7 +145,7 @@ describe.skipIf(!sourceFile)('supplied Designbao workbook', () => {
     );
   });
 
-  it('matches the 40 cached August values in 总数据（设计宝）', async () => {
+  it('matches the 40 August formulas in 总数据（设计宝）', async () => {
     const parsed = await parseWorkbook(await readFile(sourceFile!));
     const allRows = toMetricRows(parsed.projects);
     const rows = allRows.filter((row) => row.businessSource === 'DESIGNBAO');
@@ -160,11 +165,11 @@ describe.skipIf(!sourceFile)('supplied Designbao workbook', () => {
     });
 
     expect(actual).toEqual([
-      561, 817, 319, 421, 56.8627, 51.53, 34, 6.0606,
-      39, 12.2257, 27, 8.4639, 6, 15.3846, 21, 18.8088,
-      77.7778, 0, 0, 0, 0, 0, 455, 220, 31, 55.6916,
-      26.9278, 3.7944, 122, 97, 128, 140, 21.7469, 24.9554,
-      164, 148, 96, 64, 0, 38.9549,
+      599, 879, 343, 453, 57.2621, 51.5358, 35, 5.8431,
+      41, 11.9534, 30, 8.7464, 6, 14.6341, 24, 18.9504,
+      80, 0, 0, 0, 0, 0, 493, 247, 36, 56.0865,
+      28.1001, 4.0956, 135, 106, 133, 149, 22.5376, 24.8748,
+      184, 158, 98, 69, 0, 40.6181,
     ]);
 
     const range = { start: '2026-08-01', end: '2026-08-23' };
@@ -172,7 +177,7 @@ describe.skipIf(!sourceFile)('supplied Designbao workbook', () => {
       metricId: 'dispatch_project_count',
       source: 'DESIGNBAO',
       ...range,
-    })).toBe(561);
+    })).toBe(599);
 
     const inRange = (row: MetricRow) => Boolean(
       row.projectDate && row.projectDate >= range.start && row.projectDate <= range.end,
