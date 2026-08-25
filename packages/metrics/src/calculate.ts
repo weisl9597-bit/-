@@ -63,7 +63,8 @@ const workbookColumns = {
   projectExited: 'AA',
   projectPk: 'AG',
   projectHandshake: 'AH',
-  signedDate: 'AJ',
+  signedStatus: 'AI',
+  signedDate: 'AK',
 } as const;
 
 function record(value: unknown): Record<string, unknown> {
@@ -113,9 +114,11 @@ export function buildMetricRowsFromUpload(input: {
     // Import validation persists every source row for auditability. Only rows
     // with a canonical record passed validation and may enter business metrics.
     if (Object.keys(canonical).length === 0) return [];
-    const projectDate = workbookDate(canonical.assignedAt)
-      ?? workbookDate(raw[workbookColumns.projectDate])
-      ?? input.dataDate;
+    // `raw` preserves the workbook's original cells before merged values are
+    // expanded for operational project snapshots. Excel COUNTIFS ignores a
+    // merged child cell that is physically blank, so metric axes must not fall
+    // back to the expanded canonical assignment date.
+    const projectDate = workbookDate(raw[workbookColumns.projectDate]);
     const cityName = String(canonical.city || raw.A || '').trim();
     const city = cityByName.get(cityName);
     const organizationIds = [
@@ -138,9 +141,9 @@ export function buildMetricRowsFromUpload(input: {
       sourceProjectId,
       organizationIds,
       merchantId,
-      dataDate: projectDate,
+      dataDate: projectDate ?? input.dataDate,
       projectDate,
-      assignmentDate: workbookDate(raw[workbookColumns.assignmentDate]) ?? projectDate,
+      assignmentDate: workbookDate(raw[workbookColumns.assignmentDate]),
       signedDate: workbookDate(raw[workbookColumns.signedDate]),
       assignmentCount: Number.isFinite(numericAssignmentCount) ? numericAssignmentCount : 0,
       businessSource: normalizeBusinessSource(canonical.businessSource ?? raw.F),
@@ -183,35 +186,6 @@ function yes(value: unknown): boolean {
   return value === true || ['是', '有', '已完成', '完成', '已签约', '1', 'true'].includes(token(value));
 }
 
-type ProjectFact = {
-  rows: MetricRow[];
-  open: boolean;
-  exited: boolean;
-  pk: boolean;
-  handshake: boolean;
-  signed: boolean;
-  sync: string;
-};
-
-function projectFacts(rows: MetricRow[]): ProjectFact[] {
-  const grouped = new Map<string, MetricRow[]>();
-  for (const row of rows) {
-    const key = row.sourceProjectId || row.rowId || row.assignmentId;
-    const values = grouped.get(key) ?? [];
-    values.push(row);
-    grouped.set(key, values);
-  }
-  return [...grouped.values()].map((values) => ({
-    rows: values,
-    open: values.some((row) => yes(row.raw[workbookColumns.projectOpen])),
-    exited: values.some((row) => yes(row.raw[workbookColumns.projectExited])),
-    pk: values.some((row) => yes(row.raw[workbookColumns.projectPk])),
-    handshake: values.some((row) => yes(row.raw[workbookColumns.projectHandshake])),
-    signed: values.some((row) => Boolean(row.signedDate)),
-    sync: values.map((row) => token(row.raw[workbookColumns.sync])).find(Boolean) ?? '',
-  }));
-}
-
 function qualityCount(rows: MetricRow[], quality: string): number {
   return rows.filter((row) => token(row.raw[workbookColumns.quality]) === quality).length;
 }
@@ -236,28 +210,38 @@ export function calculateMetric(
   const projectRows = rowsOn(rows, periodDate, 'projectDate');
   const assignmentRows = rowsOn(rows, periodDate, 'assignmentDate');
   const signedRows = rowsOn(rows, periodDate, 'signedDate');
-  const projects = projectFacts(projectRows);
-  const dispatchProjects = projects.length;
+  // The workbook summary uses COUNTIFS/SUMIFS against source rows. Project IDs
+  // are intentionally not deduplicated: every matching row contributes once.
+  const dispatchProjects = projectRows.length;
   const dispatchAssignments = projectRows.reduce(
     (sum, row) => sum + (Number.isFinite(row.assignmentCount) ? row.assignmentCount! : 1),
     0,
   );
-  const openProjects = projects.filter((project) => project.open).length;
+  const openProjects = projectRows.filter((row) => yes(row.raw[workbookColumns.projectOpen])).length;
   const groupOpen = assignmentRows.filter((row) => yes(row.raw[workbookColumns.groupOpen])).length;
-  const exited = projects.filter((project) => project.exited).length;
-  const pk = projects.filter((project) => project.pk).length;
-  const handshake = projects.filter((project) => project.handshake).length;
-  const pkHandshake = projects.filter((project) => project.pk && project.handshake).length;
-  const noPkHandshake = projects.filter((project) => !project.pk && project.handshake).length;
-  const deepConnection = projects.filter((project) => project.pk || (!project.pk && project.handshake)).length;
-  const signedProjects = projectFacts(signedRows).filter((project) => project.signed).length;
+  const exited = projectRows.filter((row) => yes(row.raw[workbookColumns.projectExited])).length;
+  const pk = projectRows.filter((row) => yes(row.raw[workbookColumns.projectPk])).length;
+  const handshake = projectRows.filter((row) => yes(row.raw[workbookColumns.projectHandshake])).length;
+  const pkHandshake = projectRows.filter((row) =>
+    yes(row.raw[workbookColumns.projectPk]) && yes(row.raw[workbookColumns.projectHandshake])
+  ).length;
+  const noPkHandshake = projectRows.filter((row) =>
+    !yes(row.raw[workbookColumns.projectPk]) && yes(row.raw[workbookColumns.projectHandshake])
+  ).length;
+  const deepConnection = pk + noPkHandshake;
+  const signedProjects = signedRows.filter((row) => {
+    const status = token(row.raw[workbookColumns.signedStatus]);
+    return status === '是' || status === '已收定';
+  }).length;
   const follow = assignmentRows.filter((row) => row.followWithin30m === true).length;
   const detailed = assignmentRows.filter((row) => row.needsAnalyzed === true).length;
   const hardInvite = assignmentRows.filter((row) => row.hardInvite === true).length;
   const compliant = assignmentRows.filter((row) =>
     row.followWithin30m === true && row.needsAnalyzed === true && row.hardInvite === false,
   ).length;
-  const syncCount = (value: string) => projects.filter((project) => project.sync === value).length;
+  const syncCount = (value: string) => projectRows.filter((row) =>
+    token(row.raw[workbookColumns.sync]) === value
+  ).length;
   const good = qualityCount(assignmentRows, '还不错');
   const average = qualityCount(assignmentRows, '一般');
   const poor = qualityCount(assignmentRows, '差');
